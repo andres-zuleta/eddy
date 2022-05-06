@@ -49,9 +49,9 @@ class datacube(object):
     # -- PIXEL DEPROJECTION -- #
 
     def disk_coords(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0, psi=1.0,
-                    r_cavity=0.0, r_taper=None, q_taper=None, w_i=0.0, w_r=1.0,
-                    w_t=0.0, z_func=None, outframe='cylindrical',
-                    shadowed=False, force_side=None, **_):
+                    r_cavity=0.0, r_taper=None, q_taper=None, w_i=0.0, w_t=0.0,
+                    w_ir0=1.0, w_tr0=1.0, w_idr=1.0, w_tdr=1.0, z_func=None,
+                    outframe='cylindrical', shadowed=False, force_side=None, **_):
         r"""
         Get the disk coordinates given certain geometrical parameters and an
         emission surface. The emission surface is most simply described as a
@@ -180,15 +180,15 @@ class datacube(object):
         # Apply the inclination convention to be consistent with orbits.
 
         inc = inc if inc < 90.0 else inc - 180.0
-
+        w_i = w_i if w_i < 90.0 else w_i - 180.0
         # Check that the necessary pairs are provided.
 
         msg = "Must specify either both or neither of `{}` and `{}`."
         if (r_taper is not None) != (q_taper is not None):
             raise ValueError(msg.format('r_taper', 'q_taper'))
 
-        msg = "Must specify all of the warp coorinates: (w_r, w_i, w_t)."
-        if (w_i is not None) != (w_t is not None) != (w_r is not None):
+        msg = "Must specify all of the warp coorinates: (w_i, w_t)."
+        if (w_i is not None) != (w_t is not None):
             raise ValueError(msg)
 
         flared = r_taper is not None or w_i != 0.0 or r_cavity is not None
@@ -230,22 +230,22 @@ class datacube(object):
                     a_max = 0.0 if force_side == 'back' else None
                     return np.clip(z0 * z, a_min=a_min, a_max=a_max)
 
-            def w_func(r_in, t_in):
-                r = np.clip(r_in - r_cavity, a_min=0.0, a_max=None)
-                warp = np.radians(w_i) * np.exp(-0.5 * (r / w_r)**2)
-                return r * np.tan(warp * np.sin(t_in - np.radians(w_t)))
-
             # Select the deprojection method. `shadowed` uses the slower (but
             # more robust) forward modelling approach, rather than an iterative
             # method.
 
-            if shadowed:
-                coords = self._get_shadowed_coords(x0, y0, inc, PA,
-                                                   z_func, w_func)
-            else:
-                coords = self._get_flared_coords(x0, y0, inc, PA,
-                                                 z_func, w_func)
-            r, t, z = coords
+            if w_i != 0.0 or w_t != 0.0:
+                print('Warping?')
+                def w_func(r, a, r0, dr):
+                    r0 = 1.0 if r0 is None else r0
+                    dr = 1.0 if dr is None else dr
+                    return np.radians(a / (1.0 + np.exp(-(r0 - r) / (2*dr**2))))
+                
+                if shadowed:
+                    coords = self._get_warp_FAST_coords(x0, y0, inc, PA, w_i, w_t, w_ir0, w_tr0, w_idr, w_tdr, z_func, w_func)
+                else: # Still need to implement
+                    coords = self._get_warp_FAST_coords(x0, y0, inc, PA, w_i, w_t, w_ir0, w_tr0, w_idr, w_tdr, z_func, w_func)
+                r, t, z = coords
 
         # Return the values.
 
@@ -400,6 +400,48 @@ class datacube(object):
                          method=self.shadowed_method)
         return r_obs, t_obs, z_func(r_obs)
 
+    def _get_warp_FAST_coords(self, x0, y0, inc, PA, w_i, w_t, w_ir0, w_tr0, w_idr, w_tdr, z_func, w_func):
+        ### Disk coords
+        xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
+        rdisk = np.hypot(xdisk, ydisk)
+        zdisk = z_func(rdisk)
+
+        ### Add the warp by tilting and twisting annuli
+        t = w_func(rdisk, w_i, w_ir0, w_idr)
+        T = w_func(rdisk, w_t, w_tr0, w_tdr)
+
+        # Check the definitions for rotation
+        xw = np.cos(T) * xdisk - np.sin(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
+        yw = np.sin(T) * xdisk + np.cos(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
+        zw = np.sin(t) * ydisk + np.cos(t) * zdisk
+
+        ### Incline the whole disk and then remove shadowed pixels
+        x_dep = xw.copy()
+        y_dep = np.cos(np.radians(inc)) * yw - np.sin(np.radians(inc)) * zw
+        z_dep = np.sin(np.radians(inc)) * yw + np.cos(np.radians(inc)) * zw
+
+        if inc < 0.0:
+            y_dep = np.maximum.accumulate(y_dep, axis=0)
+        else:
+            y_dep = np.minimum.accumulate(y_dep[::-1], axis=0)[::-1]
+
+        ### Rotate the whole disk
+        # Check the definitions for rotation
+        x_rot, y_rot=self._rotate_coords(x_dep, y_dep, PA) 
+
+        # grid them onto a regular grid to match the image
+        from scipy.interpolate import griddata
+        x_obs = griddata((x_rot.flatten(), y_rot.flatten()), xdisk.flatten(),
+                    (xdisk.flatten(), ydisk.flatten()),
+                    method='linear').reshape(xdisk.shape)
+
+        y_obs = griddata((x_rot.flatten(), y_rot.flatten()), ydisk.flatten(),
+                    (xdisk.flatten(), ydisk.flatten()),
+                    method='linear').reshape(xdisk.shape)
+
+        r_obs = np.hypot(x_obs, y_obs)
+        t_obs = np.arctan2(y_obs, x_obs)
+
     def _get_diskframe_coords(self):
         """Disk-frame coordinates based on the cube axes."""
         x_disk = np.linspace(self.shadowed_extend * self.xaxis[0],
@@ -418,9 +460,9 @@ class datacube(object):
     def get_mask(self, r_min=None, r_max=None, exclude_r=False, phi_min=None,
                  phi_max=None, exclude_phi=False, abs_phi=False, x0=0.0,
                  y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None, r_cavity=None,
-                 r_taper=None, q_taper=None, w_i=None, w_r=None, w_t=None,
-                 z_func=None, shadowed=False, mask_frame='disk',
-                 user_mask=None):
+                 r_taper=None, q_taper=None, w_i=None, w_t=None, w_ir0=None,
+                 w_tr0=None, w_idr=None, w_tdr=None, z_func=None, shadowed=False,
+                mask_frame='disk', user_mask=None):
         """
         Returns a 2D mask for pixels in the given region. The mask can be
         specified in either disk-centric coordinates, ``mask_frame='disk'``,
@@ -480,7 +522,8 @@ class datacube(object):
         rvals, pvals = self.disk_coords(x0=x0, y0=y0, inc=inc, PA=PA, z0=z0,
                                         psi=psi, r_cavity=r_cavity,
                                         r_taper=r_taper, q_taper=q_taper,
-                                        w_i=w_i, w_r=w_r, w_t=w_t,
+                                        w_i=w_i, w_t=w_t, w_ir0=w_ir0,
+                                        w_tr0=w_tr0, w_idr=w_idr, w_tdr=w_tdr,
                                         z_func=z_func, frame='cylindrical',
                                         shadowed=shadowed)[:2]
         pvals = abs(pvals) if abs_phi else pvals
@@ -976,7 +1019,7 @@ class datacube(object):
 
     def plot_surface(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None,
                      r_cavity=None, r_taper=None, q_taper=None, w_i=None,
-                     w_r=None, w_t=None, z_func=None, w_func=None,
+                     w_t=None, w_ir0=None, w_tr0=None, w_idr=None, w_tdr=None, z_func=None, w_func=None,
                      shadowed=False, r_max=None, mask=None, fill=None, ax=None,
                      contour_kwargs=None, imshow_kwargs=None, return_fig=True,
                      **_):
@@ -1029,7 +1072,9 @@ class datacube(object):
                                                r_cavity=r_cavity,
                                                r_taper=r_taper,
                                                q_taper=q_taper,
-                                               w_i=w_i, w_r=w_r, w_t=w_t,
+                                               w_i=w_i, w_t=w_t,
+                                               w_ir0=w_ir0, w_tr0=w_tr0,
+                                               w_idr=w_idr, w_tdr=w_tdr,
                                                z_func=z_func,
                                                w_func=w_func,
                                                shadowed=shadowed)
