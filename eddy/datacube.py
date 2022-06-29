@@ -216,7 +216,6 @@ class datacube(object):
 
             w_i = 0.0 if w_i is None else w_i
             w_t = 0.0 if w_t is None else w_t
-            w_r = 0.0 if w_r is None else w_r
 
             # Define the emission surface and warp functions.
 
@@ -234,12 +233,15 @@ class datacube(object):
             # more robust) forward modelling approach, rather than an iterative
             # method.
 
-            if w_i != 0.0 or w_t != 0.0:
-                print('Warping?')
+            if w_i != None or w_t != None:
+                w_i = 0.0 if w_i is None else w_i
+                w_t = 0.0 if w_t is None else w_t
+                #print('Warping?')
+                #print(f'w_i = {w_i:.2e}, w_t = {w_t:.2e}, w_ir0 = {w_ir0:.2e}, w_tr0 = {w_tr0:.2e}, w_idr = {w_idr:.2e}, w_tdr = {w_tdr:.2e}')
                 def w_func(r, a, r0, dr):
                     r0 = 1.0 if r0 is None else r0
                     dr = 1.0 if dr is None else dr
-                    return np.radians(a / (1.0 + np.exp(-(r0 - r) / (2*dr**2))))
+                    return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
                 
                 if shadowed:
                     coords = self._get_warp_FAST_coords(x0, y0, inc, PA, w_i, w_t, w_ir0, w_tr0, w_idr, w_tdr, z_func, w_func)
@@ -441,6 +443,7 @@ class datacube(object):
 
         r_obs = np.hypot(x_obs, y_obs)
         t_obs = np.arctan2(y_obs, x_obs)
+        return r_obs, t_obs, z_func(r_obs)
 
     def _get_diskframe_coords(self):
         """Disk-frame coordinates based on the cube axes."""

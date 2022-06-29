@@ -9,6 +9,7 @@ from .datacube import datacube
 from .helper_functions import plot_walkers, plot_corner, random_p0
 import matplotlib.pyplot as plt
 import warnings
+import pdb
 
 warnings.filterwarnings("ignore")
 
@@ -677,7 +678,9 @@ class rotationmap(datacube):
             raise ValueError("type must be 'flat' or 'gaussian'.")
         if type == 'flat':
             def prior(p):
+                #print(f'{param} {p}')
                 if not min(args) <= p <= max(args):
+                    #pdb.set_trace()
                     return -np.inf
                 return np.log(1.0 / (max(args) - min(args)))
         else:
@@ -704,6 +707,7 @@ class rotationmap(datacube):
         if type == 'flat':
             def prior(p):
                 if not min(args) <= p <= max(args):
+                    
                     return -np.inf
                 return np.log(1.0 / (args[1] - args[0]))
         else:
@@ -806,7 +810,10 @@ class rotationmap(datacube):
 
     def _ln_likelihood(self, params):
         """Log-likelihood function. Simple chi-squared likelihood."""
-        model = self._make_model(params)
+        model = self._make_model(params) # Several nan values inside the model
+        #print(model, 'model inside lokelihood')
+        #print(model.shape, 'model shape')
+        model[np.isnan(model)] = 0 # Set nan values to zero
         lnx2 = np.where(self.mask, np.power((self.data - model), 2), 0.0)
         lnx2 = -0.5 * np.sum(lnx2 * self.ivar)
         return lnx2 if np.isfinite(lnx2) else -np.inf
@@ -814,7 +821,9 @@ class rotationmap(datacube):
     def _ln_probability(self, theta, *params_in):
         """Log-probablility function."""
         model = rotationmap._populate_dictionary(theta, params_in[0])
+        #print(model, 'model') # model parameters seem ok
         lnp = self._ln_prior(model)
+        #print(lnp, 'ln_prior(model)') # till this point is ok
         if np.isfinite(lnp):
             return lnp + self._ln_likelihood(model)
         return -np.inf
@@ -827,15 +836,15 @@ class rotationmap(datacube):
         self.set_prior('x0', [-0.5, 0.5], 'flat')
         self.set_prior('y0', [-0.5, 0.5], 'flat')
         self.set_prior('inc', [-90.0, 90.0], 'flat')
-        self.set_prior('PA', [-360.0, 360.0], 'flat')
+        self.set_prior('PA', [-180.0, 180.0], 'flat')
         self.set_prior('mstar', [0.1, 5.0], 'flat')
         self.set_prior('vlsr', [np.nanmin(self.data),
                                 np.nanmax(self.data)], 'flat')
 
         # Emission Surface
 
-        self.set_prior('z0', [0.0, 5.0], 'flat')
-        self.set_prior('psi', [0.0, 5.0], 'flat')
+        self.set_prior('z0', [0.0, 5.1], 'flat')
+        self.set_prior('psi', [0.0, 5.2], 'flat')
         self.set_prior('r_cavity', [0.0, 1e30], 'flat')
         self.set_prior('r_taper', [0.0, 1e30], 'flat')
         self.set_prior('q_taper', [0.0, 15.0], 'flat')
@@ -843,15 +852,19 @@ class rotationmap(datacube):
         # Warp
 
         self.set_prior('w_i', [-90.0, 90.0], 'flat')
-        self.set_prior('w_r', [-10.0, 10.0], 'flat')
         self.set_prior('w_t', [-180.0, 180.0], 'flat')
+        self.set_prior('w_ir0', [0.0, 5.0], 'flat')
+        self.set_prior('w_tr0', [0.0, 5.0], 'flat')
+        self.set_prior('w_idr', [0.0, 2.5], 'flat')
+        self.set_prior('w_tdr', [0.0, 2.5], 'flat')
+
 
         # Velocity Profile
 
         self.set_prior('vp_100', [0.0, 1e4], 'flat')
         self.set_prior('vp_q', [-2.0, 0.0], 'flat')
         self.set_prior('vp_rtaper', [0.0, 1e30], 'flat')
-        self.set_prior('vp_qtaper', [0.0, 5.0], 'flat')
+        self.set_prior('vp_qtaper', [0.0, 5.3], 'flat')
         self.set_prior('vr_100', [-1e3, 1e3], 'flat')
         self.set_prior('vr_q', [-2.0, 2.0], 'flat')
         self.set_prior('r_pressure', [0.0, 3.0*self.xaxis.max()], 'flat')
@@ -868,6 +881,7 @@ class rotationmap(datacube):
         lnp = 0.0
         for key in params.keys():
             if key in rotationmap.priors.keys() and params[key] is not None:
+                #print(f'param = {key}, params[key] = {params[key]}')
                 lnp += rotationmap.priors[key](params[key])
                 if not np.isfinite(lnp):
                     return lnp
@@ -1010,9 +1024,14 @@ class rotationmap(datacube):
 
         # Warp parameters.
 
-        params['w_i'] = params.pop('w_i', 0.0)
+        params['w_i'] = params.pop('w_i', None)
         params['w_r'] = params.pop('w_r', self.dpix)
-        params['w_t'] = params.pop('w_t', 0.0)
+        params['w_t'] = params.pop('w_t', None)
+        params['w_ir0'] = params.pop('w_ir0', 0.0)
+        params['w_tr0'] = params.pop('w_tr0', 0.0)
+        params['w_idr'] = params.pop('w_idr', 0.0)
+        params['w_tdr'] = params.pop('w_tdr', 0.0)
+
         params['shadowed'] = params.pop('shadowed', False)
 
         # Masking parameters.
@@ -1235,6 +1254,10 @@ class rotationmap(datacube):
         return self.xaxis, self.yaxis, f
 
     # -- VELOCITY PROJECTION -- #
+    def _logistic(self, r, a, r0, dr):
+        r0 = 1.0 if r0 is None else r0
+        dr = 1.0 if dr is None else dr
+        return a / (1.0 + np.exp(-(r0 - r) / (0.1*dr)))
 
     def _vkep(self, rvals, tvals, zvals, params):
         """Keplerian rotation velocity."""
@@ -1276,17 +1299,32 @@ class rotationmap(datacube):
             vpow *= np.where(rvals <= r_p, 1.0, taper)
         return vpow
 
-    def _proj_vphi(self, v_phi, tvals, params):
+    def _proj_vphi(self, v_phi, rvals, tvals, params):
         """Project the rotational velocity onto the sky."""
-        return v_phi * np.cos(tvals) * np.sin(abs(np.radians(params['inc'])))
+        if params['w_i'] != 0.0:
+            # obtain inclination matrix for warp + global inclination
+            inc_w = self._logistic(rvals, params['w_i'], params['w_ir0'], params['w_idr']) + params['inc']
+            return v_phi * np.cos(tvals) * np.sin(abs(np.radians(inc_w)))
+        else:
+            return v_phi * np.cos(tvals) * np.sin(abs(np.radians(params['inc'])))
 
-    def _proj_vrad(self, v_rad, tvals, params):
+    def _proj_vrad(self, v_rad, rvals, tvals, params):
         """Project the radial velocity onto the sky."""
-        return v_rad * np.sin(tvals) * np.sin(-np.radians(params['inc']))
+        if params['w_i'] != 0.0:
+            # obtain inclination matrix for warp + global inclination
+            inc_w = self._logistic(rvals, params['w_i'], params['w_ir0'], params['w_idr']) + params['inc']
+            return v_rad * np.sin(tvals) * np.sin(-np.radians(inc_w))
+        else:
+            return v_rad * np.sin(tvals) * np.sin(-np.radians(params['inc']))
 
-    def _proj_valt(self, v_alt, tvals, params):
+    def _proj_valt(self, v_alt, rvals, tvals, params):
         """Project the vertical velocity onto the sky."""
-        return -v_alt * np.cos(np.radians(params['inc']))
+        if params['w_i'] !=0.0:
+            # obtain inclination matrix for warp + global inclination
+            inc_w = self._logistic(rvals, params['w_i'], params['w_ir0'], params['w_idr']) + params['inc']
+            return -v_alt * np.cos(np.radians(inc_w))
+        else:
+            return -v_alt * np.cos(np.radians(params['inc']))
 
     def _make_model(self, params):
         """Build the velocity model from the dictionary of parameters."""
