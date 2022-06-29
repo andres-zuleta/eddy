@@ -855,8 +855,7 @@ class rotationmap(datacube):
         self.set_prior('w_t', [-180.0, 180.0], 'flat')
         self.set_prior('w_ir0', [0.0, 5.0], 'flat')
         self.set_prior('w_tr0', [0.0, 5.0], 'flat')
-        self.set_prior('w_idr', [0.0, 2.5], 'flat')
-        self.set_prior('w_tdr', [0.0, 2.5], 'flat')
+        self.set_prior('w_dr', [0.0, 2.5], 'flat')
 
 
         # Velocity Profile
@@ -1029,8 +1028,7 @@ class rotationmap(datacube):
         params['w_t'] = params.pop('w_t', None)
         params['w_ir0'] = params.pop('w_ir0', 0.0)
         params['w_tr0'] = params.pop('w_tr0', 0.0)
-        params['w_idr'] = params.pop('w_idr', 0.0)
-        params['w_tdr'] = params.pop('w_tdr', 0.0)
+        params['w_dr'] = params.pop('w_dr', 0.0)
 
         params['shadowed'] = params.pop('shadowed', False)
 
@@ -1303,7 +1301,7 @@ class rotationmap(datacube):
         """Project the rotational velocity onto the sky."""
         if params['w_i'] != 0.0:
             # obtain inclination matrix for warp + global inclination
-            inc_w = self._logistic(rvals, params['w_i'], params['w_ir0'], params['w_idr']) + params['inc']
+            inc_w = self._logistic(rvals, params['w_i'], params['w_ir0'], params['w_dr']) + params['inc']
             return v_phi * np.cos(tvals) * np.sin(abs(np.radians(inc_w)))
         else:
             return v_phi * np.cos(tvals) * np.sin(abs(np.radians(params['inc'])))
@@ -1312,7 +1310,7 @@ class rotationmap(datacube):
         """Project the radial velocity onto the sky."""
         if params['w_i'] != 0.0:
             # obtain inclination matrix for warp + global inclination
-            inc_w = self._logistic(rvals, params['w_i'], params['w_ir0'], params['w_idr']) + params['inc']
+            inc_w = self._logistic(rvals, params['w_i'], params['w_ir0'], params['w_dr']) + params['inc']
             return v_rad * np.sin(tvals) * np.sin(-np.radians(inc_w))
         else:
             return v_rad * np.sin(tvals) * np.sin(-np.radians(params['inc']))
@@ -1321,7 +1319,7 @@ class rotationmap(datacube):
         """Project the vertical velocity onto the sky."""
         if params['w_i'] !=0.0:
             # obtain inclination matrix for warp + global inclination
-            inc_w = self._logistic(rvals, params['w_i'], params['w_ir0'], params['w_idr']) + params['inc']
+            inc_w = self._logistic(rvals, params['w_i'], params['w_ir0'], params['w_dr']) + params['inc']
             return -v_alt * np.cos(np.radians(inc_w))
         else:
             return -v_alt * np.cos(np.radians(params['inc']))
@@ -1330,7 +1328,7 @@ class rotationmap(datacube):
         """Build the velocity model from the dictionary of parameters."""
         rvals, tvals, zvals = self.disk_coords(**params)
         vphi = params['vfunc'](rvals, tvals, zvals, params)
-        v0 = self._proj_vphi(vphi, tvals, params) + params['vlsr']
+        v0 = self._proj_vphi(vphi, rvals, tvals, params) + params['vlsr']
         if params['beam']:
             v0 = datacube._convolve_image(v0, self._beamkernel())
         return v0
