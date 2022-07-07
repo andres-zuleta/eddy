@@ -50,7 +50,7 @@ class datacube(object):
 
     def disk_coords(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0, psi=1.0,
                     r_cavity=0.0, r_taper=None, q_taper=None, w_i=0.0, w_t=0.0,
-                    w_ir0=1.0, w_tr0=1.0, w_dr=1.0, z_func=None,
+                    w_r0=1.0, w_dr=1.0, z_func=None,
                     outframe='cylindrical', shadowed=False, force_side=None, **_):
         r"""
         Get the disk coordinates given certain geometrical parameters and an
@@ -244,9 +244,9 @@ class datacube(object):
                     return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
                 
                 if shadowed:
-                    coords = self._get_warp_FAST_coords(x0, y0, inc, PA, w_i, w_t, w_ir0, w_tr0, w_dr, z_func, w_func)
+                    coords = self._get_warp_FAST_coords(x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func)
                 else: # Still need to implement
-                    coords = self._get_warp_FAST_coords(x0, y0, inc, PA, w_i, w_t, w_ir0, w_tr0, w_dr, z_func, w_func)
+                    coords = self._get_warp_FAST_coords(x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func)
                 r, t, z = coords
 
         # Return the values.
@@ -402,15 +402,15 @@ class datacube(object):
                          method=self.shadowed_method)
         return r_obs, t_obs, z_func(r_obs)
 
-    def _get_warp_FAST_coords(self, x0, y0, inc, PA, w_i, w_t, w_ir0, w_tr0, w_dr, z_func, w_func):
+    def _get_warp_FAST_coords(self, x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func):
         ### Disk coords
         xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
         rdisk = np.hypot(xdisk, ydisk)
         zdisk = z_func(rdisk)
 
         ### Add the warp by tilting and twisting annuli
-        t = w_func(rdisk, w_i, w_ir0, w_dr)
-        T = w_func(rdisk, w_t, w_tr0, w_dr)
+        t = w_func(rdisk, w_i, w_r0, w_dr)
+        T = w_func(rdisk, w_t, w_r0, w_dr)
 
         # Check the definitions for rotation
         xw = np.cos(T) * xdisk - np.sin(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
@@ -463,8 +463,8 @@ class datacube(object):
     def get_mask(self, r_min=None, r_max=None, exclude_r=False, phi_min=None,
                  phi_max=None, exclude_phi=False, abs_phi=False, x0=0.0,
                  y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None, r_cavity=None,
-                 r_taper=None, q_taper=None, w_i=None, w_t=None, w_ir0=None,
-                 w_tr0=None, w_dr=None, z_func=None, shadowed=False,
+                 r_taper=None, q_taper=None, w_i=None, w_t=None, w_r0=None,
+                 w_dr=None, z_func=None, shadowed=False,
                 mask_frame='disk', user_mask=None):
         """
         Returns a 2D mask for pixels in the given region. The mask can be
@@ -525,8 +525,8 @@ class datacube(object):
         rvals, pvals = self.disk_coords(x0=x0, y0=y0, inc=inc, PA=PA, z0=z0,
                                         psi=psi, r_cavity=r_cavity,
                                         r_taper=r_taper, q_taper=q_taper,
-                                        w_i=w_i, w_t=w_t, w_ir0=w_ir0,
-                                        w_tr0=w_tr0, w_dr=w_dr,
+                                        w_i=w_i, w_t=w_t, w_r0=w_r0,
+                                        w_dr=w_dr,
                                         z_func=z_func, frame='cylindrical',
                                         shadowed=shadowed)[:2]
         pvals = abs(pvals) if abs_phi else pvals
@@ -1022,7 +1022,7 @@ class datacube(object):
 
     def plot_surface(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None,
                      r_cavity=None, r_taper=None, q_taper=None, w_i=None,
-                     w_t=None, w_ir0=None, w_tr0=None, w_dr=None, z_func=None, w_func=None,
+                     w_t=None, w_r0=None, w_dr=None, z_func=None, w_func=None,
                      shadowed=False, r_max=None, mask=None, fill=None, ax=None,
                      contour_kwargs=None, imshow_kwargs=None, return_fig=True,
                      **_):
@@ -1076,7 +1076,7 @@ class datacube(object):
                                                r_taper=r_taper,
                                                q_taper=q_taper,
                                                w_i=w_i, w_t=w_t,
-                                               w_ir0=w_ir0, w_tr0=w_tr0,
+                                               w_r0=w_r0,
                                                w_dr=w_dr,
                                                z_func=z_func,
                                                w_func=w_func,
