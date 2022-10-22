@@ -1110,7 +1110,7 @@ class datacube(object):
         # particularly thick line.
 
         kw = {} if contour_kwargs is None else contour_kwargs
-        kw['levels'] = kw.pop('levels', np.arange(0.5, 0.99 * r_max, 0.5))
+        kw['levels'] = kw.pop('levels', np.arange(0.1, 0.99 * r_max, 0.1))
         kw['levels'] = np.append(kw['levels'], 0.99 * r_max)
         kw['linewidths'] = kw.pop('linewidths', 1.0)
         kw['colors'] = kw.pop('colors', 'k')
