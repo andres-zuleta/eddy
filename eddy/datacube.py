@@ -198,7 +198,9 @@ class datacube(object):
 
         z = None
 
-        if z_func is None:
+        if z_func is None and (w_i != None or w_t != None):
+            pass
+        else:
             if z0 == 0.0:
                 r, t = self._get_midplane_polar_coords(x0, y0, inc, PA)
                 z = np.zeros(r.shape)
