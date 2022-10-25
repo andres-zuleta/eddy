@@ -244,11 +244,10 @@ class datacube(object):
                     r0 = 1.0 if r0 is None else r0
                     dr = 1.0 if dr is None else dr
                     return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
-                
                 if shadowed:
-                    coords = self._get_warp_FAST_coords(x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func)
+                    coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
                 else: # Still need to implement
-                    coords = self._get_warp_FAST_coords(x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func)
+                    coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
                 r, t, z = coords
 
         # Return the values.
