@@ -280,3 +280,65 @@ def apply_matrix_warp(X, Y, Z, PA, inc, t, T):
     zprime = -(Y*sint + Z*cost)*cosi - (X*sinT + Y*cosT*cost - Z*sint*cosT)*sini
 
     return xprime, yprime, zprime
+
+### We can maybe reduce the number of arguments
+def get_surface(r_i, r0=1.0, z0=0.0, psi=1.25, r_taper=80.0, q_taper=1.5, nphi=50):
+
+    nr = len(r_i) - 1
+
+    # define cylindrical radius, azimuthal angle, and height above mid plane
+    ri = np.ones([nr + 1, nphi + 1]) * r_i[:, None]
+    phii = np.ones([nr + 1, nphi + 1]) * np.linspace(0, 2 * np.pi, nphi + 1)
+    zi = surface(ri, r0=r0, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper)
+
+    # define centers as well
+    rc = 0.5 * (ri[1:, 1:] + ri[:-1, 1:])
+    zc = surface(rc, r0=r0, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper)
+    phic = 0.5 * (phii[1:, 1:] + phii[1:, :-1])
+
+    # convert to cartesian (x, y = edges, xc, yc = centers)
+
+    xi = ri * np.cos(phii)
+    yi = ri * np.sin(phii)
+
+    xc = rc * np.cos(phic)
+    yc = rc * np.sin(phic)
+
+    points_i = np.moveaxis([xi, yi, zi], 0, 2)
+    points_c = np.moveaxis([xc, yc, zc], 0, 2)
+
+    return {
+        'nr': nr,
+        'nphi': nphi,
+        'points_i': points_i,
+        'points_c': points_c,
+        'ri': ri,
+        'rc': rc,
+        'phii': phii,
+        'phic': phic
+    }
+
+def surface(r, r0=1.0, z0=0.0, psi=1.25, r_taper=80.0, q_taper=1.5):
+    """return a surface height `z(r)`.
+
+    Parameters
+    ----------
+    r : array
+        radial grid
+    r0 : float, optional
+        normalization radius, by default = 1.0
+    z0 : float, optional
+        surface height normalization at r=r0, by default 0.0
+    psi : float, optional
+        flaring exponent, by default 1.25
+    r_taper : float, optional
+        radius where the surface is tapered down, by default 80.0
+    q_taper : float, optional
+        tapering exponent, by default 1.5
+
+    Returns
+    -------
+    array
+        surface height for each radius in `r`
+    """
+    return np.clip(z0 * (r / r0) ** psi * np.exp(-(r / r_taper)**q_taper), a_min=0.0, a_max=None)

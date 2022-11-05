@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import eddy
 import numpy as np
 from astropy.io import fits
 import scipy.constants as sc
@@ -8,7 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 import warnings
 
-import eddy
+from eddy import helper_functions as helper
 
 warnings.filterwarnings("ignore")
 
@@ -456,37 +457,67 @@ class datacube(object):
 
         ### Disk coords
         xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
-        rdisk = np.hypot(xdisk, ydisk)
-        zdisk = z_func(rdisk)
+        rmax = np.max(xdisk)
+        npix = xdisk.shape[0]
 
-        ### Add the warp by tilting and twisting annuli
-        t = w_func(rdisk, w_i, w_r0, w_dr)
-        T = w_func(rdisk, w_t, w_r0, w_dr)
+        r_i = np.linspace(0.0, rmax, npix)
+        r_c = 0.5 * (r_i[1:] + r_i[:-1])
 
-        ###### CHECK HERE THE MOVEAXIS ORDER
-        #p0 = np.moveaxis([xdisk, ydisk, zdisk], 0, 2)
-        #PA = PA + 90 # Correct the PA
+        #### ADD nphi to parameters in this method...
+        #### ALSO CHECK THE OTHER PARAMETERs
+        nphi = 20
 
-        #p0 = eddy.fmodule.apply_matrix2d(p0, t, T, inc, PA, 0)
-        #x_mat, y_mat, z_mat = eddy.helper_functions.apply_matrix_warp(xdisk, ydisk, zdisk, PA, inc, t, T)
-        xw = np.cos(T) * xdisk - np.sin(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
-        yw = np.sin(T) * xdisk + np.cos(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
-        zw = np.sin(t) * ydisk + np.cos(t) * zdisk
+        surf     = helper.get_surface(r_i, nphi=nphi, z0=0, r0=1, r_taper=1, q_taper=1)
+        p0_c     = surf['points_c']
+        p0_i     = surf['points_i']
+        ri       = surf['ri']
+        rc       = surf['rc']
+        phic     = surf['phic']
+        phii     = surf['phii']
+        nr, nphi = p0_c.shape[:-1]
 
-        ### Incline the whole disk and then remove shadowed pixels
-        x_dep = xw.copy()
-        y_dep = np.cos(np.radians(inc)) * yw - np.sin(np.radians(inc)) * zw
-        z_dep = np.sin(np.radians(inc)) * yw + np.cos(np.radians(inc)) * zw
+        print('nr y nphi', nr, nphi)
 
-        ### Rotate the whole disk
-        x_rot, y_rot=self._rotate_coords(x_dep, y_dep, PA) 
+        # Define the warp and twist for each ring
+        warp_c  = w_func(r_c, w_i, w_r0, w_dr)
+        warp_i  = w_func(r_i, w_i, w_r0, w_dr)
 
-        # This vz is needed for interpolation
-        vz = np.zeros_like(x_rot)
-        img_z, _ = eddy.fmodule.interpolate_grid(x_rot, y_rot, z_dep, vz, xdisk, ydisk)
+        twist_i = w_func(r_i, w_i, w_r0, w_dr)
+        twist_c = w_func(r_c, w_i, w_r0, w_dr)
 
-        r_obs = np.hypot(x_rot, y_rot)
-        t_obs = np.arctan2(y_rot, x_rot)
+
+        print('rc, warp_c, twist_c', r_c.shape, warp_c.shape, twist_c.shape)
+        print('ri, warp_i, twist_i', r_i.shape, warp_i.shape, twist_i.shape)
+        # Get the velocities 
+        ### NOT SURE IF THEY HAVE TO BE THE SPECIFIC ONES AT THIS POINT
+        v0_c = np.zeros_like(p0_c)
+        v0_i = np.zeros_like(p0_i)
+
+        azi = 0
+
+        p1_c = eddy.fmodule.apply_matrix2d(p0_c, warp_c, twist_c, inc, PA, azi)
+        v1_c = eddy.fmodule.apply_matrix2d(v0_c, warp_c, twist_c, inc, PA, azi)
+
+        #nr = nr + 1
+
+        p1_i = eddy.fmodule.apply_matrix2d(p0_i, warp_i, twist_i, inc, PA, azi)
+        v1_i = eddy.fmodule.apply_matrix2d(v0_i, warp_i, twist_i, inc, PA, azi)
+
+        ### Interpolate on sky plane
+
+        _gx = np.linspace(-r_i[-1], r_i[-1], npix)
+        _gy = np.linspace(-r_i[-1], r_i[-1], npix)
+        img_xi, img_yi = np.meshgrid(_gx, _gy, indexing='ij')
+        img_xc = 0.5 * (img_xi[1:, 1:] + img_xi[:-1, 1:])
+        img_yc = 0.5 * (img_yi[1:, 1:] + img_yi[1:, :-1])
+
+        X, Y, Z = p1_i.T
+        vxi, vyi, vzi = v1_i.T
+        img_z, img_v = eddy.fmodule.interpolate_grid(X, Y, Z, vzi, img_xc, img_yc)
+
+        r_obs = np.hypot(X, Y)
+        t_obs = np.arctan2(Y, X)
+
         return r_obs, t_obs, img_z
 
     def _get_diskframe_coords(self):
