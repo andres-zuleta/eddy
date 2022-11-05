@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 import warnings
 
+import eddy
+
 warnings.filterwarnings("ignore")
 
 
@@ -215,6 +217,7 @@ class datacube(object):
             r_cavity = 0.0 if r_cavity is None else r_cavity
             r_taper = np.inf if r_taper is None else r_taper
             q_taper = 1.0 if q_taper is None else q_taper
+            psi = 0.0 if psi is None else psi
 
             w_i = 0.0 if w_i is None else w_i
             w_t = 0.0 if w_t is None else w_t
@@ -244,9 +247,13 @@ class datacube(object):
                     r0 = 1.0 if r0 is None else r0
                     dr = 1.0 if dr is None else dr
                     return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
+                
+                print(shadowed, 'SHADOWED???')
                 if shadowed:
-                    coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
-                else: # Still need to implement
+                    print('Til method')
+                    coords = self._get_warp_TIL_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
+                else :
+                    print('Rich method')
                     coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
                 r, t, z = coords
 
@@ -413,7 +420,6 @@ class datacube(object):
         t = w_func(rdisk, w_i, w_r0, w_dr)
         T = w_func(rdisk, w_t, w_r0, w_dr)
 
-        # Check the definitions for rotation
         xw = np.cos(T) * xdisk - np.sin(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
         yw = np.sin(T) * xdisk + np.cos(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
         zw = np.sin(t) * ydisk + np.cos(t) * zdisk
@@ -429,7 +435,6 @@ class datacube(object):
             y_dep = np.minimum.accumulate(y_dep[::-1], axis=0)[::-1]
 
         ### Rotate the whole disk
-        # Check the definitions for rotation
         x_rot, y_rot=self._rotate_coords(x_dep, y_dep, PA) 
 
         # grid them onto a regular grid to match the image
@@ -445,6 +450,44 @@ class datacube(object):
         r_obs = np.hypot(x_obs, y_obs)
         t_obs = np.arctan2(y_obs, x_obs)
         return r_obs, t_obs, z_func(r_obs)
+
+    def _get_warp_TIL_coords(self, x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func):
+        print('First step :)')
+
+        ### Disk coords
+        xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
+        rdisk = np.hypot(xdisk, ydisk)
+        zdisk = z_func(rdisk)
+
+        ### Add the warp by tilting and twisting annuli
+        t = w_func(rdisk, w_i, w_r0, w_dr)
+        T = w_func(rdisk, w_t, w_r0, w_dr)
+
+        ###### CHECK HERE THE MOVEAXIS ORDER
+        #p0 = np.moveaxis([xdisk, ydisk, zdisk], 0, 2)
+        #PA = PA + 90 # Correct the PA
+
+        #p0 = eddy.fmodule.apply_matrix2d(p0, t, T, inc, PA, 0)
+        #x_mat, y_mat, z_mat = eddy.helper_functions.apply_matrix_warp(xdisk, ydisk, zdisk, PA, inc, t, T)
+        xw = np.cos(T) * xdisk - np.sin(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
+        yw = np.sin(T) * xdisk + np.cos(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
+        zw = np.sin(t) * ydisk + np.cos(t) * zdisk
+
+        ### Incline the whole disk and then remove shadowed pixels
+        x_dep = xw.copy()
+        y_dep = np.cos(np.radians(inc)) * yw - np.sin(np.radians(inc)) * zw
+        z_dep = np.sin(np.radians(inc)) * yw + np.cos(np.radians(inc)) * zw
+
+        ### Rotate the whole disk
+        x_rot, y_rot=self._rotate_coords(x_dep, y_dep, PA) 
+
+        # This vz is needed for interpolation
+        vz = np.zeros_like(x_rot)
+        img_z, _ = eddy.fmodule.interpolate_grid(x_rot, y_rot, z_dep, vz, xdisk, ydisk)
+
+        r_obs = np.hypot(x_rot, y_rot)
+        t_obs = np.arctan2(y_rot, x_rot)
+        return r_obs, t_obs, img_z
 
     def _get_diskframe_coords(self):
         """Disk-frame coordinates based on the cube axes."""

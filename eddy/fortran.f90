@@ -347,6 +347,85 @@ subroutine apply_matrix2D(p, warp, twist, inc, PA, azi, pout, nr, nphi)
 
 end subroutine
 
+! -------------------------------------------------------------------
+! Define new functions for Rich's matrix defitions
+! -------------------------------------------------------------------
+
+subroutine apply_matrix_R(p, warp, twist, inc, PA, azi, pout)
+
+   DOUBLE PRECISION, INTENT(in) :: p(3), warp
+   DOUBLE PRECISION, INTENT(IN), optional :: twist, inc, PA, azi
+   DOUBLE PRECISION, INTENT(OUT) :: pout(3)
+   ! the default values
+   DOUBLE PRECISION :: phi_t = 0d0, PA_ = 0d0, inc_ = 0d0, azi_ = 0d0
+   DOUBLE PRECISION :: x, y, z
+   DOUBLE PRECISION :: cosw, sinw, cost, sint
+   if(present(twist)) phi_t=twist
+   if(present(inc)) inc_=inc
+   if(present(PA)) PA_=PA
+   if(present(azi)) azi_=azi
+
+   x = p(1)
+   y = p(2)
+   z = p(3)
+
+   cosw = cos(warp)
+   sinw = sin(warp)
+   
+   cost = cos(phi_t)
+   sint = sin(phi_t)
+   
+   pout(1) = -(y*sinw + z*cosw)*sin(inc_)*cos(PA_) + (x*sint + &
+      y*cost*cosw - z*sinw*cost)*cos(PA_)* &
+      cos(inc_) + (x*cost - y*sint*cosw + z*sin( &
+      phi_t)*sinw)*sin(PA_)
+
+   pout(2) = (y*sinw + z*cosw)*sin(PA_)*sin(inc_) - (x*sint + y &
+      *cost*cosw - z*sinw*cost)*sin(PA_)* &
+      cos(inc_) + (x*cost - y*sint*cosw + z*sin( &
+      phi_t)*sinw)*cos(PA_)
+
+   pout(3) = (y*sinw + z*cosw)*cos(inc_) + (x*sint + y*cos( &
+      phi_t)*cosw - z*sinw*cost)*sin(inc_)
+
+
+end subroutine
+
+! -------------------------------------------------------------------
+
+subroutine apply_matrix2D_R(p, warp, twist, inc, PA, azi, pout, nr, nphi)
+
+INTEGER, INTENT(in) :: nr, nphi
+DOUBLE PRECISION, INTENT(in) :: p(nr, nphi, 3), warp(nr)
+DOUBLE PRECISION, INTENT(IN), optional :: twist(nr), inc, PA, azi
+DOUBLE PRECISION, INTENT(OUT) :: pout(nr, nphi, 3)
+! the default values
+DOUBLE PRECISION :: phi_t(nr), PA_ = 0d0, inc_ = 0d0, azi_ = 0d0
+integer :: ir, iphi
+
+if(present(twist)) then 
+   phi_t=twist
+else
+   phi_t=0d0
+end if
+
+if(present(inc)) inc_=inc
+if(present(PA)) PA_=PA
+if(present(azi)) azi_=azi
+
+do ir = 1, nr
+   do iphi = 1, nphi
+      call apply_matrix_R(p(ir, iphi, :), warp(ir), phi_t(ir), inc_, PA_, azi_, pout(ir, iphi, :))
+   end do
+end do
+
+
+end subroutine
+
+! -------------------------------------------------------------------
+! -------------------------------------------------------------------
+
+
 subroutine test_module(xi, yi, zi, vi, img_x, img_y, img_z, img_v)
    IMPLICIT NONE
    INTEGER, parameter :: nix=30, niy=20

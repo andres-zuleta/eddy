@@ -1,3 +1,4 @@
+from pyexpat.errors import XML_ERROR_PARAM_ENTITY_REF
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
@@ -257,3 +258,25 @@ def plot_corner(samples, labels=None, quantiles=[0.16, 0.5, 0.84]):
     import corner
     corner.corner(samples, labels=labels, title_fmt='.4f', bins=30,
                   quantiles=quantiles, show_titles=True)
+
+# -- TRANSFORMATION MATRIX FUNCTIONS -- #
+
+def apply_matrix_warp(X, Y, Z, PA, inc, t, T):
+
+    cosPA = np.cos(PA)
+    sinPA = np.sin(PA)
+
+    cosi = np.cos(inc)
+    sini = np.sin(inc)
+
+    cost = np.cos(t)
+    sint = np.sin(t)
+
+    cosT = np.cos(T)
+    sinT = np.sin(T)
+
+    xprime = (-(Y*sint + Z*cost)*sini + (X*sinT + Y*cosT*cost - Z*sint*cosT)*cosi)*sinPA + (X*cosT - Y*sinT*cost + Z*sinT* sint)*cosPA
+    yprime = (-(Y*sint + Z*cost)*sini + (X*sinT + Y*cosT*cost - Z*sint*cosT)*cosi)*cosPA - (X*cosT - Y*sinT*cost + Z*sinT* sint)*sinPA
+    zprime = -(Y*sint + Z*cost)*cosi - (X*sinT + Y*cosT*cost - Z*sint*cosT)*sini
+
+    return xprime, yprime, zprime
