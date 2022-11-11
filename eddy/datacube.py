@@ -252,7 +252,7 @@ class datacube(object):
                 print(shadowed, 'SHADOWED???')
                 if shadowed:
                     print('Til method')
-                    coords = self._get_warp_TIL_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
+                    coords = self._get_warp_TIL_coords_annuli(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
                 else :
                     print('Rich method')
                     coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
@@ -473,12 +473,12 @@ class datacube(object):
         y_dep = np.cos(np.radians(inc)) * yw - np.sin(np.radians(inc)) * zw
         z_dep = np.sin(np.radians(inc)) * yw + np.cos(np.radians(inc)) * zw
 
+        vzi = np.zeros_like(x_dep)
+
+        img_z, img_v = eddy.fmodule.interpolate_grid(x_dep, y_dep, z_dep, vzi, xw, yw)
+        
         ### Rotate the whole disk
-        x_rot, y_rot=self._rotate_coords(x_dep, y_dep, PA)
-
-        vzi = np.zeros_like(x_rot)
-
-        img_z, img_v = eddy.fmodule.interpolate_grid(x_dep, y_dep, z_dep, vzi, xdisk, ydisk)
+        x_rot, y_rot=self._rotate_coords(x_dep, y_dep, PA+90)
 
         r_obs = np.hypot(x_rot, y_rot)
         t_obs = np.arctan2(y_rot, x_rot)
@@ -494,13 +494,14 @@ class datacube(object):
         xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
         rmax = np.max(xdisk)
         npix = xdisk.shape[0]
+        print('rmax', rmax)
 
         r_i = np.linspace(0.0, rmax, npix)
         r_c = 0.5 * (r_i[1:] + r_i[:-1])
 
         #### ADD nphi to parameters in this method...
         #### ALSO CHECK THE OTHER PARAMETERs
-        nphi = 20
+        nphi = 256
 
         surf     = helper.get_surface(r_i, nphi=nphi, z0=0, r0=1, r_taper=1, q_taper=1)
         p0_c     = surf['points_c']
@@ -519,29 +520,43 @@ class datacube(object):
 
         twist_i = w_func(r_i, w_t, w_r0, w_dr)
         twist_c = w_func(r_c, w_t, w_r0, w_dr)
+        print(np.max(np.rad2deg(warp_c)))
 
 
         print('rc, warp_c, twist_c', r_c.shape, warp_c.shape, twist_c.shape)
         print('ri, warp_i, twist_i', r_i.shape, warp_i.shape, twist_i.shape)
         # Get the velocities 
         ### NOT SURE IF THEY HAVE TO BE THE SPECIFIC ONES AT THIS POINT
-        v0_c = np.zeros_like(p0_c)
-        v0_i = np.zeros_like(p0_i)
+        M_star = 1
+        Grav = 1
+        v0_c = (p0_c[:, :, 0]**2 + p0_c[:, :, 1]**2)**-0.25
+        v0_c = v0_c * np.sqrt(Grav * M_star) # AU TO CGS
+        v0_c = v0_c[None, :, :] * np.array([-np.sin(phic), np.cos(phic),np.zeros_like(phic)])
+        v0_c = np.moveaxis(v0_c, 0, 2)
+
+
+        v0_i = (p0_i[:, :, 0]**2 + p0_i[:, :, 1]**2)**-0.25
+        v0_i = v0_i * np.sqrt(Grav * M_star)
+        v0_i = v0_i[None, :, :] * np.array([-np.sin(phii), np.cos(phii), np.zeros_like(phii)])
+        v0_i = np.moveaxis(v0_i, 0, 2)
 
         azi = 0
+        #print(inc, 'inc' , PA, 'PA')
+        inc = np.deg2rad(inc)
+        PA = np.deg2rad(PA + 90) # Correct the PA
 
-        p1_c = eddy.fmodule.apply_matrix2d(p0_c, warp_c, twist_c, inc, PA, azi)
-        v1_c = eddy.fmodule.apply_matrix2d(v0_c, warp_c, twist_c, inc, PA, azi)
+        p1_c = eddy.fmodule.apply_matrix2d_r(p0_c, warp_c, twist_c, inc, PA, azi)
+        v1_c = eddy.fmodule.apply_matrix2d_r(v0_c, warp_c, twist_c, inc, PA, azi)
 
         #nr = nr + 1
 
-        p1_i = eddy.fmodule.apply_matrix2d(p0_i, warp_i, twist_i, inc, PA, azi)
-        v1_i = eddy.fmodule.apply_matrix2d(v0_i, warp_i, twist_i, inc, PA, azi)
+        p1_i = eddy.fmodule.apply_matrix2d_r(p0_i, warp_i, twist_i, inc, PA, azi)
+        v1_i = eddy.fmodule.apply_matrix2d_r(v0_i, warp_i, twist_i, inc, PA, azi)
 
         ### Interpolate on sky plane
 
-        _gx = np.linspace(-r_i[-1], r_i[-1], npix)
-        _gy = np.linspace(-r_i[-1], r_i[-1], npix)
+        _gx = np.linspace(-r_i[-1], r_i[-1], npix + 1)
+        _gy = np.linspace(-r_i[-1], r_i[-1], npix + 1)
         img_xi, img_yi = np.meshgrid(_gx, _gy, indexing='ij')
         img_xc = 0.5 * (img_xi[1:, 1:] + img_xi[:-1, 1:])
         img_yc = 0.5 * (img_yi[1:, 1:] + img_yi[1:, :-1])
@@ -549,11 +564,21 @@ class datacube(object):
         X, Y, Z = p1_i.T
         vxi, vyi, vzi = v1_i.T
         img_z, img_v = eddy.fmodule.interpolate_grid(X, Y, Z, vzi, img_xc, img_yc)
+        _,     img_r = eddy.fmodule.interpolate_grid(X, Y, Z, ri.T, img_xc, img_yc)
+        
+        # REMAP TO img_Z shape
+        __gx = np.linspace(-r_i[-1], r_i[-1], img_xi.shape[0]-1)
+        __gy = np.linspace(-r_i[-1], r_i[-1], img_xi.shape[1]-1)
 
-        r_obs = np.hypot(X, Y)
-        t_obs = np.arctan2(Y, X)
+        img_xi_, img_yi_ = np.meshgrid(__gx, __gy, indexing='ij')
+        
+        
+        print('img_xi     -     img_yi ---- img_z')
+        print(img_xi_.shape, img_yi_.shape, img_z.shape)
+        r_obs = img_r
+        t_obs = np.arctan2(img_yi_, img_xi_)
 
-        return r_obs, t_obs, img_z
+        return r_obs, t_obs, img_v
 
     def _get_diskframe_coords(self):
         """Disk-frame coordinates based on the cube axes."""
