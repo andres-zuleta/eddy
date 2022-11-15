@@ -56,7 +56,8 @@ class datacube(object):
     def disk_coords(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0, psi=1.0,
                     r_cavity=0.0, r_taper=None, q_taper=None, w_i=0.0, w_t=0.0,
                     w_r0=1.0, w_dr=1.0, z_func=None,
-                    outframe='cylindrical', shadowed=False, force_side=None, mstar=None, dist=None, **_):
+                    outframe='cylindrical', shadowed=False, force_side=None,
+                    mstar=None, dist=None, **_):
         r"""
         Get the disk coordinates given certain geometrical parameters and an
         emission surface. The emission surface is most simply described as a
@@ -251,12 +252,9 @@ class datacube(object):
                     dr = 1.0 if dr is None else dr
                     return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
                 
-                #print(shadowed, 'SHADOWED???')
                 if shadowed:
-                    #print('Til method')
                     coords = self._get_warp_TIL_coords_annuli(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, mstar=mstar, dist=dist)
                 else :
-                    #print('Rich method')
                     coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
                 r, t, z = coords
 
@@ -490,9 +488,12 @@ class datacube(object):
 
 
     def _get_warp_TIL_coords_annuli(self, x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func, mstar, dist):
-        #print('Til annuli - method')
-        #print(mstar)
-        #print(dist)
+
+        ### TO DO
+        # - Think how and offset could affect the method
+        # - integrate nphi to parameters
+        # - use of an arbitrary z_func
+        nphi = 32
 
         ### Disk coords
         xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
@@ -502,10 +503,6 @@ class datacube(object):
 
         r_i = np.linspace(0.0, rmax, npix)
         r_c = 0.5 * (r_i[1:] + r_i[:-1])
-
-        #### ADD nphi to parameters in this method...
-        #### ALSO CHECK THE OTHER PARAMETERs
-        nphi = 32
 
         surf     = helper.get_surface(r_i, nphi=nphi, z0=0, r0=1, r_taper=1, q_taper=1)
         p0_c     = surf['points_c']
@@ -534,35 +531,23 @@ class datacube(object):
             v0 = v0 * np.array([-np.sin(phi), np.cos(phi),np.zeros_like(phi)])
             return np.moveaxis(v0, 0, 2)
 
-        #v0_c = (p0_c[:, :, 0]**2 + p0_c[:, :, 1]**2)**-0.25
-        #v0_c = v0_c * np.sqrt(self.Grav * mstar * self.msun) # AU TO CGS
-        #v0_c = v0_c[None, :, :] * np.array([-np.sin(phic), np.cos(phic),np.zeros_like(phic)])
-        #v0_c = np.moveaxis(v0_c, 0, 2)
         v0_c = vkep(p0_c, phic, mstar, dist)
-
-        #v0_i = (p0_i[:, :, 0]**2 + p0_i[:, :, 1]**2)**-0.25
-        #v0_i = v0_i * np.sqrt(self.Grav * mstar * self.msun)
-        #v0_i = v0_i[None, :, :] * np.array([-np.sin(phii), np.cos(phii), np.zeros_like(phii)])
-        #v0_i = np.moveaxis(v0_i, 0, 2)
         v0_i = vkep(p0_i, phii, mstar, dist)
 
         azi = 0
-        #print(inc, 'inc' , PA, 'PA')
         inc = np.deg2rad(inc)
-        PA = np.deg2rad(PA) # Correct the PA
+        PA = np.deg2rad(PA)
 
         p1_c = eddy.fmodule.apply_matrix2d_r(p0_c, warp_c, twist_c, inc, PA, azi)
         v1_c = eddy.fmodule.apply_matrix2d_r(v0_c, warp_c, twist_c, inc, PA, azi)
-
-        #nr = nr + 1
 
         p1_i = eddy.fmodule.apply_matrix2d_r(p0_i, warp_i, twist_i, inc, PA, azi)
         v1_i = eddy.fmodule.apply_matrix2d_r(v0_i, warp_i, twist_i, inc, PA, azi)
 
         ### Interpolate on sky plane
 
-        _gx = np.linspace(-r_i[-1], r_i[-1], npix + 1)
-        _gy = np.linspace(-r_i[-1], r_i[-1], npix + 1)
+        _gx = np.linspace(-r_i[-1], r_i[-1], npix + 1) + x0
+        _gy = np.linspace(-r_i[-1], r_i[-1], npix + 1) + y0
         img_xi, img_yi = np.meshgrid(_gx, _gy, indexing='ij')
         img_xc = 0.5 * (img_xi[1:, 1:] + img_xi[:-1, 1:])
         img_yc = 0.5 * (img_yi[1:, 1:] + img_yi[1:, :-1])
@@ -573,14 +558,11 @@ class datacube(object):
         _,     img_r = eddy.fmodule.interpolate_grid(X, Y, Z, ri.T, img_xc, img_yc)
         
         # REMAP TO img_Z shape
-        __gx = np.linspace(-r_i[-1], r_i[-1], img_xi.shape[0]-1)
-        __gy = np.linspace(-r_i[-1], r_i[-1], img_xi.shape[1]-1)
+        __gx = np.linspace(-r_i[-1], r_i[-1], img_xi.shape[0]-1) + x0
+        __gy = np.linspace(-r_i[-1], r_i[-1], img_xi.shape[1]-1) + y0
 
         img_xi_, img_yi_ = np.meshgrid(__gx, __gy, indexing='ij')
         
-        
-        #print('img_xi     -     img_yi ---- img_z')
-        #print(img_xi_.shape, img_yi_.shape, img_z.shape)
         r_obs = img_r
         t_obs = np.arctan2(img_yi_, img_xi_)
 
@@ -1164,9 +1146,9 @@ class datacube(object):
     def plot_surface(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None,
                      r_cavity=None, r_taper=None, q_taper=None, w_i=None,
                      w_t=None, w_r0=None, w_dr=None, z_func=None, w_func=None,
-                     shadowed=False, r_max=None, mask=None, fill=None, ax=None,
-                     contour_kwargs=None, imshow_kwargs=None, return_fig=True,
-                     **_):
+                     shadowed=False, mstar=None, dist=None, r_max=None,
+                     mask=None, fill=None, ax=None, contour_kwargs=None,
+                     imshow_kwargs=None, return_fig=True, **_):
         """
         Overplot the emission surface onto the provided axis.
 
@@ -1221,6 +1203,8 @@ class datacube(object):
                                                w_dr=w_dr,
                                                z_func=z_func,
                                                w_func=w_func,
+                                               mstar=mstar,
+                                               dist=dist,
                                                shadowed=shadowed)
 
         # Mask the data based on r_max.
