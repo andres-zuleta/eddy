@@ -496,7 +496,7 @@ class datacube(object):
         nphi = 32
 
         ### Disk coords
-        xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
+        xdisk, ydisk = self._get_cart_sky_coords(0, 0)
         rmax = np.max(xdisk)
         npix = xdisk.shape[0]
         #print('rmax', rmax)
@@ -514,11 +514,11 @@ class datacube(object):
         nr, nphi = p0_c.shape[:-1]
 
         # Define the warp and twist for each ring
-        warp_c  = w_func(r_c, w_i, w_r0, w_dr)
+        #warp_c  = w_func(r_c, w_i, w_r0, w_dr)
         warp_i  = w_func(r_i, w_i, w_r0, w_dr)
 
         twist_i = w_func(r_i, w_t, w_r0, w_dr)
-        twist_c = w_func(r_c, w_t, w_r0, w_dr)
+        #twist_c = w_func(r_c, w_t, w_r0, w_dr)
 
         # Get the velocities
         def vkep(p0, phi, mstar, dist):
@@ -531,40 +531,43 @@ class datacube(object):
             v0 = v0 * np.array([-np.sin(phi), np.cos(phi),np.zeros_like(phi)])
             return np.moveaxis(v0, 0, 2)
 
-        v0_c = vkep(p0_c, phic, mstar, dist)
+        #v0_c = vkep(p0_c, phic, mstar, dist)
         v0_i = vkep(p0_i, phii, mstar, dist)
 
         azi = 0
         inc = np.deg2rad(inc)
         PA = np.deg2rad(PA)
 
-        p1_c = eddy.fmodule.apply_matrix2d_r(p0_c, warp_c, twist_c, inc, PA, azi)
-        v1_c = eddy.fmodule.apply_matrix2d_r(v0_c, warp_c, twist_c, inc, PA, azi)
+        #p1_c = eddy.fmodule.apply_matrix2d_r(p0_c, warp_c, twist_c, inc, PA, azi)
+        #v1_c = eddy.fmodule.apply_matrix2d_r(v0_c, warp_c, twist_c, inc, PA, azi)
 
         p1_i = eddy.fmodule.apply_matrix2d_r(p0_i, warp_i, twist_i, inc, PA, azi)
         v1_i = eddy.fmodule.apply_matrix2d_r(v0_i, warp_i, twist_i, inc, PA, azi)
 
         ### Interpolate on sky plane
 
-        _gx = np.linspace(-r_i[-1], r_i[-1], npix + 1) + x0
-        _gy = np.linspace(-r_i[-1], r_i[-1], npix + 1) + y0
+        _gx = np.linspace(-r_i[-1], r_i[-1], npix + 1)
+        _gy = np.linspace(-r_i[-1], r_i[-1], npix + 1)
         img_xi, img_yi = np.meshgrid(_gx, _gy, indexing='ij')
-        img_xc = 0.5 * (img_xi[1:, 1:] + img_xi[:-1, 1:])
-        img_yc = 0.5 * (img_yi[1:, 1:] + img_yi[1:, :-1])
+
+        x0, y0 = -y0, x0 # Redefine to match shadowing method
+        
+        img_xc = 0.5 * (img_xi[1:, 1:] + img_xi[:-1, 1:]) + x0
+        img_yc = 0.5 * (img_yi[1:, 1:] + img_yi[1:, :-1]) + y0
 
         X, Y, Z = p1_i.T
         vxi, vyi, vzi = v1_i.T
-        img_z, self._v0 = eddy.fmodule.interpolate_grid(X, Y, Z, vzi, img_xc, img_yc)
-        _,     img_r = eddy.fmodule.interpolate_grid(X, Y, Z, ri.T, img_xc, img_yc)
-        
-        # REMAP TO img_Z shape
-        __gx = np.linspace(-r_i[-1], r_i[-1], img_xi.shape[0]-1) + x0
-        __gy = np.linspace(-r_i[-1], r_i[-1], img_xi.shape[1]-1) + y0
 
-        img_xi_, img_yi_ = np.meshgrid(__gx, __gy, indexing='ij')
+        values = np.stack((vzi, ri.T, phii.T)).transpose(1,2,0)
+
+        img_z, values_interp = eddy.fmodule.interpolate_grid(X, Y, Z, values, img_xc, img_yc)
+        self._v0 = values_interp[:, :, 0]
+        img_r = values_interp[:, :, 1]
+        img_phi = values_interp[:, :, 2]
         
+        # rename to eddy conventions
         r_obs = img_r
-        t_obs = np.arctan2(img_yi_, img_xi_)
+        t_obs = img_phi
 
         return r_obs, t_obs, img_z
 
