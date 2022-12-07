@@ -514,35 +514,37 @@ class datacube(object):
         nr, nphi = p0_c.shape[:-1]
 
         # Define the warp and twist for each ring
-        #warp_c  = w_func(r_c, w_i, w_r0, w_dr)
         warp_i  = w_func(r_i, w_i, w_r0, w_dr)
-
         twist_i = w_func(r_i, w_t, w_r0, w_dr)
-        #twist_c = w_func(r_c, w_t, w_r0, w_dr)
+        #print(warp_i.shape, 'SHAPE')
+        #print(np.max(np.rad2deg(warp_i)), 'warp inc')
+        #print(np.max(np.rad2deg(twist_i)), 'warp twist')
+
+        azi = 0
+        inc = np.deg2rad(inc)
+        PA = np.deg2rad(PA+90) # Correct the PA
 
         # Get the velocities
         def vkep(p0, phi, mstar, dist):
             r_vals = np.hypot(p0[:, :, 0], p0[:, :, 1])
             z_vals = p0[:, :, 2]
+
             r_m = r_vals * sc.au * dist
             z_m = z_vals * sc.au * dist
             vkep = sc.G * mstar * self.msun * np.power(r_m, 2)
             v0 = np.sqrt(vkep * np.power(np.hypot(r_m, z_m), -3))
-            v0 = v0 * np.array([-np.sin(phi), np.cos(phi),np.zeros_like(phi)])
+            v0 = v0 * np.array([np.cos(phi), np.cos(phi),np.zeros_like(phi)])
             return np.moveaxis(v0, 0, 2)
-
-        #v0_c = vkep(p0_c, phic, mstar, dist)
-        v0_i = vkep(p0_i, phii, mstar, dist)
-
-        azi = 0
-        inc = np.deg2rad(inc)
-        PA = np.deg2rad(PA)
+        
+        print(p0_i.shape, 'p0 shape')
+        vkep_i = vkep(p0_i, phii, mstar, dist)
+        print(phii.shape, 'phii shape')
 
         #p1_c = eddy.fmodule.apply_matrix2d_r(p0_c, warp_c, twist_c, inc, PA, azi)
         #v1_c = eddy.fmodule.apply_matrix2d_r(v0_c, warp_c, twist_c, inc, PA, azi)
 
         p1_i = eddy.fmodule.apply_matrix2d_r(p0_i, warp_i, twist_i, inc, PA, azi)
-        v1_i = eddy.fmodule.apply_matrix2d_r(v0_i, warp_i, twist_i, inc, PA, azi)
+        v1_i = eddy.fmodule.apply_matrix2d_r(vkep_i, warp_i, twist_i, inc, PA, azi)
 
         ### Interpolate on sky plane
 
@@ -550,7 +552,7 @@ class datacube(object):
         _gy = np.linspace(-r_i[-1], r_i[-1], npix + 1)
         img_xi, img_yi = np.meshgrid(_gx, _gy, indexing='ij')
 
-        x0, y0 = -y0, x0 # Redefine to match shadowing method
+        x0, y0 = -y0, x0 # Redefine to match offsets
         
         img_xc = 0.5 * (img_xi[1:, 1:] + img_xi[:-1, 1:]) + x0
         img_yc = 0.5 * (img_yi[1:, 1:] + img_yi[1:, :-1]) + y0
@@ -561,9 +563,19 @@ class datacube(object):
         values = np.stack((vzi, ri.T, phii.T)).transpose(1,2,0)
 
         img_z, values_interp = eddy.fmodule.interpolate_grid(X, Y, Z, values, img_xc, img_yc)
-        self._v0 = values_interp[:, :, 0]
         img_r = values_interp[:, :, 1]
         img_phi = values_interp[:, :, 2]
+
+        vkep = values_interp[:, :, 0]
+
+        self._v0 = vkep# * np.array([np.cos(img_phi), np.cos(img_phi), np.zeros_like(img_phi)])
+        
+        
+
+        self._v0[self._v0==self._v0[0,0]] = np.nan
+        img_r[img_r==img_r[0,0]] = np.nan
+        img_phi[img_phi==img_phi[0,0]] = np.nan
+
         
         # rename to eddy conventions
         r_obs = img_r

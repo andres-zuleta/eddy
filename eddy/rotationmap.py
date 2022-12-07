@@ -1302,6 +1302,7 @@ class rotationmap(datacube):
             inc_w = self._logistic(rvals, params['w_i'], params['w_r0'], params['w_dr']) + params['inc']
             return v_phi * np.cos(tvals) * np.sin(abs(np.radians(inc_w)))
         else:
+            print('No warp')
             return v_phi * np.cos(tvals) * np.sin(abs(np.radians(params['inc'])))
 
     def _proj_vrad(self, v_rad, rvals, tvals, params):
@@ -1328,7 +1329,7 @@ class rotationmap(datacube):
         #print(self._v0.shape, 'exists!!!')
         ### Use the Til's method to get the velocity
         if params['shadowed']:
-            v0 = self._v0
+            v0 = self._v0 + params['vlsr']
         else:
             vphi = params['vfunc'](rvals, tvals, zvals, params)
             v0 = self._proj_vphi(vphi, rvals, tvals, params) + params['vlsr']
