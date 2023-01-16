@@ -31,9 +31,9 @@ if __name__ == "__main__":
     def run_setup(extensions):
         setup(
             name="astro-eddy",
-            version="2.1.4-3",
+            version="2.2",
             author="Richard Teague",
-            author_email="richard.d.teague@cfa.harvard.edu",
+            author_email="rteague@mit.edu",
             description=("Tools to recover expectionally precise rotation curves from "
                         "spatially resolved spectra."),
             long_description=long_description,
@@ -54,6 +54,8 @@ if __name__ == "__main__":
                 "corner>=2",
                 "zeus-mcmc",
                 ],
+            package_data={'eddy': ['*.yml']},
+            include_package_data=True,
             classifiers=[
                 "Programming Language :: Python :: 3.5",
                 "License :: OSI Approved :: MIT License",
@@ -65,4 +67,3 @@ if __name__ == "__main__":
     except Exception:
         warnings.warn('Setup with extensions did not work. Install fortran manually by issuing `make` in the diskwarp sub-folder')
         run_setup([])
-

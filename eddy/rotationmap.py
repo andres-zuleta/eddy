@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import time
+import yaml
 import zeus
 import emcee
 import numpy as np
@@ -35,26 +36,47 @@ class rotationmap(datacube):
             If you use ``downsample='beam'`` it will sample roughly
             spatially independent pixels using the beam major axis as the
             spacing.
+        fill (Optional[float]): Replace all ``NaN`` values with this value.
+        force_center (Optional[bool]): If ``True`` define the spatial axes such
+            that they describe offset from the array center in [arcsec]. This
+            is useful if the FITS header does not contain axis information.
     """
 
     priors = {}
     SHO_priors = {}
 
-    def __init__(self, path, FOV=None, uncertainty=None, downsample=None):
-        datacube.__init__(self, path=path, FOV=FOV, fill=None)
+    def __init__(self, path, FOV=None, uncertainty=None, downsample=None,
+                 fill=None, force_center=False):
+        datacube.__init__(self, path=path, FOV=FOV, fill=fill,
+                          force_center=force_center)
+
+        # Check to see what unit the velocities are in.
+        # TODO: Sometimes the bunit is not m/s or km/s so we might want to
+        # include a check.
+
         if self.header['bunit'].lower() not in ['m/s', 'km/s']:
             msg = "What is the velocity unit? Either `m/s` or `km/s`."
             self.velocity_unit = input(msg)
         else:
             self.velocity_unit = self.header['bunit'].lower()
+
         self.data *= 1e3 if self.velocity_unit == 'km/s' else 1.0
         self.mask = np.isfinite(self.data)
         self._readuncertainty(uncertainty=uncertainty, FOV=FOV)
+
         if downsample is not None:
             self.downsample_cube(downsample)
-        self.vlsr = np.nanmedian(self.data)
-        self.vlsr_kms = self.vlsr / 1e3
+
+        self.default_parameters = self._load_default_parameters()
         self._set_default_priors()
+
+    @property
+    def vlsr(self):
+        return np.nanmedian(self.data)
+
+    @property
+    def vlsr_kms(self):
+        return self.vlsr / 1e3
 
     # -- FITTING FUNCTIONS -- #
 
@@ -682,7 +704,7 @@ class rotationmap(datacube):
                 if not min(args) <= p <= max(args):
                     #pdb.set_trace()
                     return -np.inf
-                return np.log(1.0 / (max(args) - min(args)))
+                return max(-100.0, np.log(1.0 / (max(args) - min(args))))
         else:
             def prior(p):
                 return -0.5 * ((args[0] - p) / args[1])**2
@@ -824,46 +846,42 @@ class rotationmap(datacube):
             return lnp + self._ln_likelihood(model)
         return -np.inf
 
+    def _load_default_parameters(self, path='default_parameters.yml'):
+        """Load the default parameters."""
+        with open(__file__.replace('rotationmap.py', path)) as stream:
+            parameters = yaml.safe_load(stream)
+        for p in parameters.keys():
+            if parameters[p]['prior_type'] is not None:
+                values = parameters[p]['prior_values']
+                if len(values) == 1:
+                    parameters[p]['prior_values'] = [-values[0], values[0]]
+        return parameters
+
+    def print_default_prior(self, parameter):
+        """Print the default prior for a given parameter."""
+        try:
+            prior_type = self.default_parameters[parameter]['prior_type']
+            prior_values = self.default_parameters[parameter]['prior_values']
+            str = '`{}` has a '
+            if prior_type == 'flat':
+                str += '{} prior with a minimum value of {}'
+                str += ' and a maximum value {}.'
+            elif prior_type == 'gaussian':
+                str += '{} prior with mean of {}'
+                str += ' and standard deviation of {}.'
+            print(str.format(parameter, prior_type, *prior_values))
+        except KeyError:
+            print('`{}` is not a free parameter.'.format(parameter))
+
     def _set_default_priors(self):
         """Set the default priors."""
 
-        # Basic Geometry.
+        # fit_map functions
 
-        self.set_prior('x0', [-0.5, 0.5], 'flat')
-        self.set_prior('y0', [-0.5, 0.5], 'flat')
-        self.set_prior('inc', [-90.0, 90.0], 'flat')
-        self.set_prior('PA', [-180.0, 180.0], 'flat')
-        self.set_prior('mstar', [0.1, 5.0], 'flat')
-        self.set_prior('vlsr', [np.nanmin(self.data),
-                                np.nanmax(self.data)], 'flat')
-
-        # Emission Surface
-
-        self.set_prior('z0', [0.0, 5.1], 'flat')
-        self.set_prior('psi', [0.0, 5.2], 'flat')
-        self.set_prior('r_cavity', [0.0, 1e30], 'flat')
-        self.set_prior('r_taper', [0.0, 1e30], 'flat')
-        self.set_prior('q_taper', [0.0, 15.0], 'flat')
-
-        # Warp
-
-        self.set_prior('w_i', [-90.0, 90.0], 'flat')
-        self.set_prior('w_t', [-180.0, 180.0], 'flat')
-        self.set_prior('w_t0', [-180.0, 180.0], 'flat')
-        self.set_prior('w_r0', [0.0, 5.0], 'flat')
-        self.set_prior('w_dr', [0.0, 2.5], 'flat')
-
-
-        # Velocity Profile
-
-        self.set_prior('vp_100', [0.0, 1e4], 'flat')
-        self.set_prior('vp_q', [-2.0, 0.0], 'flat')
-        self.set_prior('vp_rtaper', [0.0, 1e30], 'flat')
-        self.set_prior('vp_qtaper', [0.0, 5.3], 'flat')
-        self.set_prior('vr_100', [-1e3, 1e3], 'flat')
-        self.set_prior('vr_q', [-2.0, 2.0], 'flat')
-        self.set_prior('r_pressure', [0.0, 3.0*self.xaxis.max()], 'flat')
-        self.set_prior('w_pressure', [0.0, 1e2], 'flat')
+        for k in self.default_parameters.keys():
+            p = self.default_parameters[k]
+            if p['prior_type'] is not None:
+                self.set_prior(k, p['prior_values'], p['prior_type'])
 
         # SHO functions.
 
@@ -876,8 +894,10 @@ class rotationmap(datacube):
         lnp = 0.0
         for key in params.keys():
             if key in rotationmap.priors.keys() and params[key] is not None:
-                #print(f'param = {key}, params[key] = {params[key]}')
-                lnp += rotationmap.priors[key](params[key])
+                try:
+                    lnp += rotationmap.priors[key](params[key])
+                except:
+                    print(key, params[key])
                 if not np.isfinite(lnp):
                     return lnp
         return lnp
@@ -914,7 +934,8 @@ class rotationmap(datacube):
 
         # Velocity mask.
 
-        v_min, v_max = params['v_min'], params['v_max']
+        v_min = params.get('v_min', np.nanmin(self.data))
+        v_max = params.get('v_max', np.nanmax(self.data))
         mask_v = np.logical_and(self.data >= v_min, self.data <= v_max)
         mask_v = ~mask_v if params['exclude_v'] else mask_v
 
@@ -958,100 +979,48 @@ class rotationmap(datacube):
         fitting. For non-essential parameters a default value is set.
         """
 
-        # Basic geometrical properties.
-
-        params['x0'] = params.pop('x0', 0.0)
-        params['y0'] = params.pop('y0', 0.0)
-        params['dist'] = params.pop('dist', 100.0)
-        params['vlsr'] = params.pop('vlsr', self.vlsr)
-        if params.get('inc', None) is None:
-            raise KeyError("Must provide `'inc'`.")
-        if params.get('PA', None) is None:
-            raise KeyError("Must provide `'PA'`.")
+        for p in self.default_parameters.keys():
+            params[p] = params.pop(p, self.default_parameters[p]['default'])
 
         # Rotation profile.
 
-        if params.get('r_pressure') is None:
-            params['has_pressure'] = False
-        else:
-            params['has_pressure'] = True
-
-        if params.get('vp_100') is None:
-            params['has_vp_100'] = False
-        else:
-            params['has_vp_100'] = True
-
-        if params.get('mstar') is None:
-            params['has_mstar'] = False
-        else:
-            params['has_mstar'] = True
-
-        if params['has_mstar'] and params['has_vp_100']:
-            raise KeyError("Only provide either `'mstar'` or `'vp_100'`.")
-        if not params['has_mstar'] and not params['has_vp_100']:
-            raise KeyError("Must provide either `'mstar'` or `'vp_100'`.")
-        if params['has_mstar']:
-            if params['has_pressure']:
-                params['vfunc'] = self._vkep_pressure
-            else:
-                params['vfunc'] = self._vkep
-        else:
-            if params['has_pressure']:
-                params['vfunc'] = self._vpow_pressure
-            else:
+        if params['vp_100'] is not None:
+            if params['mstar'] is not None:
                 params['vfunc'] = self._vpow
+            else:
+                raise ValueError("Cannot specify both `vp_100` and `mstar`.")
+        else:
+            params['vfunc'] = self._vkep
 
-        params['vp_q'] = params.pop('vp_q', -0.5)
-        params['vp_rtaper'] = params.pop('vp_rtaper', 1e10)
-        params['vp_qtaper'] = params.pop('vp_qtaper', 1.0)
-        params['vr_100'] = params.pop('vr_100', 0.0)
-        params['vr_q'] = params.pop('vr_q', 0.0)
-        params['w_pressure'] = params.pop('w_pressure', 0.0)
+        # Deprojection properties.
 
-        # Flared emission surface.
-
-        params['z0'] = params.pop('z0', 0.0)
-        params['psi'] = params.pop('psi', 1.0)
-        params['r_taper'] = params.pop('r_taper', None)
-        params['q_taper'] = params.pop('q_taper', None)
-        params['r_cavity'] = params.pop('r_cavity', None)
         params['z_func'] = params.pop('z_func', None)
-
-        # Warp parameters.
-
-        params['w_i'] = params.pop('w_i', None)
-        params['w_r'] = params.pop('w_r', self.dpix)
-        params['w_t'] = params.pop('w_t', None)
-        params['w_t0'] = params.pop('w_t0', 0.0)
-        params['w_r0'] = params.pop('w_r0', 0.0)
-        params['w_dr'] = params.pop('w_dr', 0.0)
-
         params['shadowed'] = params.pop('shadowed', False)
 
         # Masking parameters.
 
-        params['r_min'] = params.pop('r_min', 0.0)
-        params['r_max'] = params.pop('r_max', 1e10)
-        params['exclude_r'] = params.pop('exclude_r', False)
-        params['phi_min'] = params.pop('phi_min', -180.0)
-        params['phi_max'] = params.pop('phi_max', 180.0)
-        params['exclude_phi'] = params.pop('exclude_phi', False)
-        params['abs_phi'] = params.pop('abs_phi', False)
-        params['v_min'] = params.pop('v_min', np.nanmin(self.data))
-        params['v_max'] = params.pop('v_max', np.nanmax(self.data))
-        params['exclude_v'] = params.pop('exclude_v', False)
+        # params['r_min'] = params.pop('r_min', 0.0)
+        # params['r_max'] = params.pop('r_max', 1e10)
+        # params['exclude_r'] = params.pop('exclude_r', False)
+        # params['phi_min'] = params.pop('phi_min', -180.0)
+        # params['phi_max'] = params.pop('phi_max', 180.0)
+        # params['exclude_phi'] = params.pop('exclude_phi', False)
+        # params['abs_phi'] = params.pop('abs_phi', False)
+        # params['v_min'] = params.pop('v_min', np.nanmin(self.data))
+        # params['v_max'] = params.pop('v_max', np.nanmax(self.data))
+        # params['exclude_v'] = params.pop('exclude_v', False)
         params['user_mask'] = params.pop('user_mask', np.ones(self.data.shape))
 
-        if params['r_min'] >= params['r_max']:
-            raise ValueError("`r_max` must be greater than `r_min`.")
-        if params['phi_min'] >= params['phi_max']:
-            raise ValueError("`phi_max` must be great than `phi_min`.")
-        if params['v_min'] >= params['v_max']:
-            raise ValueError("`v_max` must be greater than `v_min`.")
+        # if params['r_min'] >= params['r_max']:
+        #     raise ValueError("`r_max` must be greater than `r_min`.")
+        # if params['phi_min'] >= params['phi_max']:
+        #     raise ValueError("`phi_max` must be great than `phi_min`.")
+        # if params['v_min'] >= params['v_max']:
+        #     raise ValueError("`v_max` must be greater than `v_min`.")
 
         # Beam convolution.
 
-        params['beam'] = bool(params.pop('beam', False))
+        # params['beam'] = bool(params.pop('beam', False))
 
         return params
 
@@ -1257,8 +1226,18 @@ class rotationmap(datacube):
         """Keplerian rotation velocity."""
         r_m = rvals * sc.au * params['dist']
         z_m = zvals * sc.au * params['dist']
-        vkep = sc.G * params['mstar'] * self.msun * np.power(r_m, 2)
+        mtotal = params['mstar'] + self._calc_mdisk(rvals, params)
+        vkep = sc.G * mtotal * self.msun * np.power(r_m, 2)
         return np.sqrt(vkep * np.power(np.hypot(r_m, z_m), -3))
+
+    def _calc_mdisk(self, rvals, params):
+        """Psuedo disk self-gravity component."""
+        if params['mdisk'] is None:
+            return 0.0
+        exponent = 2.0 - params['gamma']
+        rscale = rvals**exponent - params['r_in']**exponent
+        rscale /= params['r_out']**exponent - params['r_in']**exponent
+        return params['mdisk'] * np.clip(rscale, a_min=0.0, a_max=1.0)
 
     def _vkep_pressure(self, rvals, tvals, zvals, params):
         """Keplerian rotation velocity with pressure term."""
@@ -1882,6 +1861,38 @@ class rotationmap(datacube):
         model.pop('r_max')
         fig = self.plot_surface(**model, **plot_surface_kwargs)
         self._gentrify_plot(ax=fig.axes[0])
+
+        if return_fig:
+            return fig
+
+    def plot_model_surface_2D(self, samples, params, draws=50, return_fig=True):
+        """
+        Plot the model surface in the (r, z) plane.
+
+        Args:
+            samples (ndarray): An array of samples returned from ``fit_map``.
+            params (dict): The parameter dictionary passed to ``fit_map``.
+            drawns (Optional[int]): Number of draws from the posterior to plot.
+            return_fig (Optional[bool]): Return the figure.
+
+        Returns:
+            fig (Matplotlib figure): If ``return_fig`` is ``True``. Can access
+                the axes through ``fig.axes`` for additional plotting.
+        """
+
+        r, _, z = self.evaluate_models(samples=samples,
+                                       params=params,
+                                       draws=draws,
+                                       coords_only=True,
+                                       )
+        rvals, rbins = self._get_radial_bins()
+        ridxs = np.digitize(rbins, r)
+        zvals = np.array([np.mean(z[ridxs == r]) for r in ridxs])
+
+        fig, ax = plt.subplots()
+        ax.plot(rvals, zvals)
+        ax.set_xlabel('Radius (arcsec')
+        ax.set_ylabel('Height (arcsec)')
 
         if return_fig:
             return fig

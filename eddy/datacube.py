@@ -25,6 +25,10 @@ class datacube(object):
             square field of view with sides of `FOV` [arcsec].
         velocity_range (Optional[list]): A tuple or list of the minimum and
             maximum velocities in [m/s] to clip the data cube to.
+        fill (Optional[float]): Replace all ``NaN`` values with this value.
+        force_center (Optional[bool]): If ``True`` define the spatial axes such
+            that they describe offset from the array center in [arcsec]. This
+            is useful if the FITS header does not contain axis information.
     """
 
     flared_niter = 5
@@ -37,12 +41,14 @@ class datacube(object):
     Grav = 6.6743e-11
 
 
-    def __init__(self, path, FOV=None, velocity_range=None, fill=None):
+    def __init__(self, path, FOV=None, velocity_range=None, fill=None,
+                 force_center=False):
 
         # Read in the data
 
         self.path = path
-        self._read_FITS(path=self.path, fill=fill)
+        self._read_FITS(path=self.path, fill=fill,
+                        force_center=force_center)
 
         # Clip down the cube.
 
@@ -228,15 +234,17 @@ class datacube(object):
 
             # Define the emission surface and warp functions.
 
+        if z0 is None:
+            r, t = self._get_midplane_polar_coords(x0, y0, inc, PA)
+            z = np.zeros(r.shape)
+        elif psi is None:
+            r, t, z = self._get_conical_polar_coords(x0, y0, inc, PA, z0)
+        else:
             if z_func is None:
+                r_taper = np.inf if r_taper is None else r_taper
                 def z_func(r_in):
                     r = np.clip(r_in - r_cavity, a_min=0.0, a_max=None)
-                    z = r**psi * np.exp(-np.power(r / r_taper, q_taper))
-                    if force_side is None:
-                        return z0 * z
-                    a_min = 0.0 if force_side == 'front' else None
-                    a_max = 0.0 if force_side == 'back' else None
-                    return np.clip(z0 * z, a_min=a_min, a_max=a_max)
+                    return z0 * r**psi * np.exp(-np.power(r/r_taper, q_taper))
 
             # Select the deprojection method. `shadowed` uses the slower (but
             # more robust) forward modelling approach, rather than an iterative
@@ -363,7 +371,7 @@ class datacube(object):
         x_d, y_d, z_d = self._get_conical_cart_coords(x0, y0, inc, PA, z0)
         return np.hypot(y_d, x_d), np.arctan2(y_d, x_d), z_d
 
-    def _get_flared_coords(self, x0, y0, inc, PA, z_func, w_func):
+    def _get_flared_coords(self, x0, y0, inc, PA, z_func, w_func=None):
         """Return cyclindrical coords of surface in [arcsec, rad, arcsec]."""
         x_mid, y_mid = self._get_midplane_cart_coords(x0, y0, inc, PA)
         r_tmp, t_tmp = np.hypot(x_mid, y_mid), np.arctan2(y_mid, x_mid)
@@ -373,7 +381,7 @@ class datacube(object):
             t_tmp = np.arctan2(y_tmp, x_mid)
         return r_tmp, t_tmp, z_func(r_tmp)
 
-    def _get_shadowed_coords(self, x0, y0, inc, PA, z_func, w_func):
+    def _get_shadowed_coords(self, x0, y0, inc, PA, z_func, w_func=None):
         """
         Return cyclindrical coords of surface in [arcsec, rad, arcsec].
         """
@@ -381,7 +389,9 @@ class datacube(object):
         # Make the disk-frame coordinates.
 
         xdisk, ydisk, rdisk, tdisk = self._get_diskframe_coords()
-        zdisk = z_func(rdisk) + w_func(rdisk, tdisk)
+        zdisk = z_func(rdisk)
+        if w_func is not None:
+            zdisk += w_func(rdisk, tdisk)
 
         # Incline the disk.
 
@@ -615,10 +625,10 @@ class datacube(object):
 
     def get_mask(self, r_min=None, r_max=None, exclude_r=False, phi_min=None,
                  phi_max=None, exclude_phi=False, abs_phi=False, x0=0.0,
-                 y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None, r_cavity=None,
-                 r_taper=None, q_taper=None, w_i=None, w_t=None, w_r0=None,
+                 y0=0.0, inc=0.0, PA=0.0, z0=0.0, psi=1.0, r_cavity=0.0,
+                 r_taper=np.inf, q_taper=1.0, w_i=None, w_t=None, w_r0=None,
                  w_dr=None, z_func=None, shadowed=False,
-                mask_frame='disk', user_mask=None):
+                 mask_frame='disk', user_mask=None):
         """
         Returns a 2D mask for pixels in the given region. The mask can be
         specified in either disk-centric coordinates, ``mask_frame='disk'``,
@@ -713,7 +723,7 @@ class datacube(object):
 
     # -- DATA I/O -- #
 
-    def _read_FITS(self, path, fill=None):
+    def _read_FITS(self, path, fill=None, force_center=False):
         """Reads the data from the FITS file."""
 
         # File names.
@@ -721,19 +731,27 @@ class datacube(object):
         self.path = os.path.expanduser(path)
         self.fname = self.path.split('/')[-1]
 
-        # FITS data.
+        # Read in the data and, if necessary, fill the NaNs with default
+        # values. Note that in the case of multiple data fields, we need to
+        # think of something different.
 
         self.header = fits.getheader(path)
         self.data = np.squeeze(fits.getdata(self.path))
         if fill is not None:
             self.data = np.where(np.isfinite(self.data), self.data, fill)
 
-        # Position axes.
+        # Position axes. Two options here, either try to build the axis based
+        # on the information in the header, or if force_center=True then return
+        # an axis where the offset is relative to the image center
 
-        self.xaxis = self._readpositionaxis(a=1)
-        self.yaxis = self._readpositionaxis(a=2)
-        self.xaxis -= 0.5*self.dpix
-        self.yaxis -= 0.5*self.dpix
+        if force_center:
+            self.xaxis = self._forcepositionaxis(a=1)
+            self.yaxis = self._forcepositionaxis(a=2)
+        else:
+            self.xaxis = self._readpositionaxis(a=1)
+            self.yaxis = self._readpositionaxis(a=2)
+            self.xaxis -= 0.5*self.dpix
+            self.yaxis -= 0.5*self.dpix
 
         # Spectral axis.
 
@@ -913,7 +931,16 @@ class datacube(object):
                 a_del = 1.0 * self._user_pixel_scale
             a_pix = a_len / 2.0 + 0.5
         axis = (np.arange(a_len) - a_pix + 1.0) * a_del
-        return 3600 * axis
+        return 3600.0 * axis
+
+    def _forcepositionaxis(self, a=1):
+        """Returns the axis in [arcsec] assuming image is centered."""
+        if a not in [1, 2]:
+            raise ValueError("'a' must be in [1, 2].")
+        a_len = self.data.shape[-1] if a == 1 else self.data.shape[-2]
+        axis = np.arange(a_len).astype('float') - a_len / 2.0
+        axis += 0.5 * (abs(axis[0]) - abs(axis[-1]))
+        return axis
 
     def _readrestfreq(self):
         """Read the rest frequency."""
