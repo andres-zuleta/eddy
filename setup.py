@@ -41,10 +41,6 @@ if __name__ == "__main__":
             url="https://github.com/richteague/eddy",
             license="MIT",
             packages=["eddy"],
-            package_data= {PACKAGENAME: [
-                'eddy/fortran.f90',
-            ]},
-            include_package_data=True,
             ext_modules=[extensions],
             install_requires=[
                 "scipy>=1",
@@ -54,7 +50,7 @@ if __name__ == "__main__":
                 "corner>=2",
                 "zeus-mcmc",
                 ],
-            package_data={'eddy': ['*.yml']},
+            package_data={PACKAGENAME: ['*.yml', 'eddy/fortran.f90']},
             include_package_data=True,
             classifiers=[
                 "Programming Language :: Python :: 3.5",
