@@ -55,7 +55,7 @@ class datacube(object):
 
     def disk_coords(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0, psi=1.0,
                     r_cavity=0.0, r_taper=None, q_taper=None, w_i=0.0, w_t=0.0,
-                    w_r0=1.0, w_dr=1.0, z_func=None,
+                    w_t0=0.0, w_r0=1.0, w_dr=1.0, z_func=None,
                     outframe='cylindrical', shadowed=False, force_side=None,
                     mstar=None, dist=None, **_):
         r"""
@@ -243,19 +243,21 @@ class datacube(object):
             # method.
 
             if w_i != None or w_t != None:
+
                 w_i = 0.0 if w_i is None else w_i
                 w_t = 0.0 if w_t is None else w_t
-                #print('Warping?')
-                #print(f'w_i = {w_i:.2e}, w_t = {w_t:.2e}, w_ir0 = {w_ir0:.2e}, w_tr0 = {w_tr0:.2e}, w_idr = {w_idr:.2e}, w_tdr = {w_tdr:.2e}')
+                w_t0 = 0.0 if w_t0 is None else w_t0
+
                 def w_func(r, a, r0, dr):
                     r0 = 1.0 if r0 is None else r0
                     dr = 1.0 if dr is None else dr
                     return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
                 
                 if shadowed:
-                    coords = self._get_warp_TIL_coords_annuli(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, mstar=mstar, dist=dist)
+                    coords = self._get_warp_TIL_coords_annuli(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, mstar=mstar, dist=dist)
+                    #coords = self._get_warp_TIL_coords_XY(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, mstar=mstar, dist=dist)
                 else :
-                    coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
+                    coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
                 r, t, z = coords
 
         # Return the values.
@@ -411,15 +413,16 @@ class datacube(object):
                          method=self.shadowed_method)
         return r_obs, t_obs, z_func(r_obs)
 
-    def _get_warp_FAST_coords(self, x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func):
+    def _get_warp_FAST_coords(self, x0, y0, inc, PA, w_i, w_t, w_t0, w_r0, w_dr, z_func, w_func):
         ### Disk coords
         xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
+        self._t0 = np.arctan2(ydisk, xdisk)
         rdisk = np.hypot(xdisk, ydisk)
         zdisk = z_func(rdisk)
 
         ### Add the warp by tilting and twisting annuli
         t = w_func(rdisk, w_i, w_r0, w_dr)
-        T = w_func(rdisk, w_t, w_r0, w_dr)
+        T = w_func(rdisk, w_t, w_r0, w_dr) + np.deg2rad(w_t0)
 
         xw = np.cos(T) * xdisk - np.sin(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
         yw = np.sin(T) * xdisk + np.cos(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
@@ -452,54 +455,79 @@ class datacube(object):
         t_obs = np.arctan2(y_obs, x_obs)
         return r_obs, t_obs, z_func(r_obs)
 
-    def _get_warp_TIL_coords_XY(self, x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func):
-        print('Til XY - method')
+    def _get_warp_TIL_coords_XY(self, x0, y0, inc, PA, w_i, w_t, w_t0, w_r0, w_dr, z_func, w_func, mstar, dist):
 
         xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
+        rmax = np.max(xdisk)
+        npix = xdisk.shape[0]
 
         rdisk = np.hypot(xdisk, ydisk)
+        tdisk = np.arctan2(ydisk, xdisk)
         zdisk = z_func(rdisk)
 
         ### Add the warp by tilting and twisting annuli
         t = w_func(rdisk, w_i, w_r0, w_dr)
-        T = w_func(rdisk, w_t, w_r0, w_dr)
+        T = w_func(rdisk, w_t, w_r0, w_dr) + np.deg2rad(w_t0)
 
-        xw = np.cos(T) * xdisk - np.sin(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
-        yw = np.sin(T) * xdisk + np.cos(T) * (np.cos(t) * ydisk - np.sin(t) * zdisk)
-        zw = np.sin(t) * ydisk + np.cos(t) * zdisk
+        def _vkep(rvals, tvals, zvals, mstar, dist):
+            r_m = rvals * sc.au * dist
+            z_m = zvals * sc.au * dist
+            vkep = sc.G * mstar * self.msun * np.power(r_m, 2)
 
-        ### Incline the whole disk and then remove shadowed pixels
-        x_dep = xw.copy()
-        y_dep = np.cos(np.radians(inc)) * yw - np.sin(np.radians(inc)) * zw
-        z_dep = np.sin(np.radians(inc)) * yw + np.cos(np.radians(inc)) * zw
-
-        vzi = np.zeros_like(x_dep)
-
-        img_z, img_v = eddy.fmodule.interpolate_grid(x_dep, y_dep, z_dep, vzi, xw, yw)
+            v = np.sqrt(vkep * np.power(np.hypot(r_m, z_m), -3))
+            v = v * np.array([np.ones_like(tvals), np.ones_like(tvals), np.zeros_like(tvals)])
+            return np.moveaxis(v, 0, 2)
         
-        ### Rotate the whole disk
-        x_rot, y_rot=self._rotate_coords(x_dep, y_dep, PA+90)
+        vkep0 = _vkep(rdisk, tdisk, zdisk, mstar, dist)
+        vx, vy, vz = vkep0[:, :, 0], vkep0[:, :, 1], vkep0[:, :, 2]
 
-        r_obs = np.hypot(x_rot, y_rot)
-        t_obs = np.arctan2(y_rot, x_rot)
+        p1 = helper.apply_matrix_warp(xdisk, ydisk, zdisk, PA+90, inc, t, T)
+        v1 = helper.apply_matrix_warp(vx, vy, vz, PA+90, inc, t, T)
 
-        return r_obs, t_obs, img_z
+        ### Interpolate on sky plane
+
+        _gx = np.linspace(-rmax, rmax, npix + 1)
+        _gy = np.linspace(-rmax, rmax, npix + 1)
+        img_xi, img_yi = np.meshgrid(_gx, _gy, indexing='ij')
+
+        x0, y0 = -y0, x0 # Redefine to match offsets
+        
+        img_xc = 0.5 * (img_xi[1:, 1:] + img_xi[:-1, 1:]) + x0
+        img_yc = 0.5 * (img_yi[1:, 1:] + img_yi[1:, :-1]) + y0
+
+        X, Y, Z = p1.T
+        vxi, vyi, vzi = v1.T
+
+        values = np.stack((vzi, rdisk.T, tdisk.T)).transpose(1,2,0)
+
+        z, values_interp = eddy.fmodule.interpolate_grid(X, Y, Z, values, img_xc, img_yc)
+        r_obs = values_interp[:, :, 1]
+        t_obs = values_interp[:, :, 2]
+        vkep  = values_interp[:, :, 0]
+        
+        #inc_w = w_func(r_obs, w_i, w_r0, w_dr) + inc # Already in rad
+        self._v0 = vkep * np.cos(t_obs)#* np.sin(abs(inc_w))
+        
+        self._v0[self._v0==self._v0[0,0]] = np.nan
+        r_obs[r_obs==r_obs[0,0]] = np.nan
+        t_obs[t_obs==t_obs[0,0]] = np.nan
+
+        return r_obs, t_obs, z
 
 
 
-    def _get_warp_TIL_coords_annuli(self, x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func, mstar, dist):
+    def _get_warp_TIL_coords_annuli(self, x0, y0, inc, PA, w_i, w_t, w_t0, w_r0, w_dr, z_func, w_func, mstar, dist):
 
         ### TO DO
-        # - Think how and offset could affect the method
         # - integrate nphi to parameters
         # - use of an arbitrary z_func
+        
         nphi = 32
 
         ### Disk coords
         xdisk, ydisk = self._get_cart_sky_coords(0, 0)
         rmax = np.max(xdisk)
         npix = xdisk.shape[0]
-        #print('rmax', rmax)
 
         r_i = np.linspace(0.0, rmax, npix)
         r_c = 0.5 * (r_i[1:] + r_i[:-1])
@@ -515,33 +543,26 @@ class datacube(object):
 
         # Define the warp and twist for each ring
         warp_i  = w_func(r_i, w_i, w_r0, w_dr)
-        twist_i = w_func(r_i, w_t, w_r0, w_dr)
-        #print(warp_i.shape, 'SHAPE')
-        #print(np.max(np.rad2deg(warp_i)), 'warp inc')
-        #print(np.max(np.rad2deg(twist_i)), 'warp twist')
+        twist_i = w_func(r_i, w_t, w_r0, w_dr) + np.deg2rad(w_t0)
 
         azi = 0
         inc = np.deg2rad(inc)
         PA = np.deg2rad(PA+90) # Correct the PA
 
         # Get the velocities
-        def vkep(p0, phi, mstar, dist):
+        def _vkep(p0, phi, mstar, dist):
             r_vals = np.hypot(p0[:, :, 0], p0[:, :, 1])
             z_vals = p0[:, :, 2]
 
             r_m = r_vals * sc.au * dist
             z_m = z_vals * sc.au * dist
             vkep = sc.G * mstar * self.msun * np.power(r_m, 2)
-            v0 = np.sqrt(vkep * np.power(np.hypot(r_m, z_m), -3))
-            v0 = v0 * np.array([np.cos(phi), np.cos(phi),np.zeros_like(phi)])
-            return np.moveaxis(v0, 0, 2)
+            v = np.sqrt(vkep * np.power(np.hypot(r_m, z_m), -3))
+            v = v * np.array([np.ones_like(phi), np.ones_like(phi), np.zeros_like(phi)])
+            return np.moveaxis(v, 0, 2)
         
-        print(p0_i.shape, 'p0 shape')
-        vkep_i = vkep(p0_i, phii, mstar, dist)
-        print(phii.shape, 'phii shape')
-
-        #p1_c = eddy.fmodule.apply_matrix2d_r(p0_c, warp_c, twist_c, inc, PA, azi)
-        #v1_c = eddy.fmodule.apply_matrix2d_r(v0_c, warp_c, twist_c, inc, PA, azi)
+        # Get the rotational velocity
+        vkep_i = _vkep(p0_i, phii, mstar, dist)
 
         p1_i = eddy.fmodule.apply_matrix2d_r(p0_i, warp_i, twist_i, inc, PA, azi)
         v1_i = eddy.fmodule.apply_matrix2d_r(vkep_i, warp_i, twist_i, inc, PA, azi)
@@ -562,26 +583,20 @@ class datacube(object):
 
         values = np.stack((vzi, ri.T, phii.T)).transpose(1,2,0)
 
-        img_z, values_interp = eddy.fmodule.interpolate_grid(X, Y, Z, values, img_xc, img_yc)
-        img_r = values_interp[:, :, 1]
-        img_phi = values_interp[:, :, 2]
-
+        z, values_interp = eddy.fmodule.interpolate_grid(X, Y, Z, values, img_xc, img_yc)
+        r_obs = values_interp[:, :, 1]
+        t_obs = values_interp[:, :, 2]
         vkep = values_interp[:, :, 0]
-
-        self._v0 = vkep# * np.array([np.cos(img_phi), np.cos(img_phi), np.zeros_like(img_phi)])
         
+        # 
+        inc_w = w_func(r_obs, w_i, w_r0, w_dr) + inc # Already in rad
+        self._v0 = vkep * np.cos(t_obs)#* np.sin(abs(inc_w))
         
-
         self._v0[self._v0==self._v0[0,0]] = np.nan
-        img_r[img_r==img_r[0,0]] = np.nan
-        img_phi[img_phi==img_phi[0,0]] = np.nan
+        r_obs[r_obs==r_obs[0,0]] = np.nan
+        t_obs[t_obs==t_obs[0,0]] = np.nan
 
-        
-        # rename to eddy conventions
-        r_obs = img_r
-        t_obs = img_phi
-
-        return r_obs, t_obs, img_z
+        return r_obs, t_obs, z
 
     def _get_diskframe_coords(self):
         """Disk-frame coordinates based on the cube axes."""
@@ -1160,7 +1175,7 @@ class datacube(object):
 
     def plot_surface(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None,
                      r_cavity=None, r_taper=None, q_taper=None, w_i=None,
-                     w_t=None, w_r0=None, w_dr=None, z_func=None, w_func=None,
+                     w_t=None, w_t0=None, w_r0=None, w_dr=None, z_func=None, w_func=None,
                      shadowed=False, mstar=None, dist=None, r_max=None,
                      mask=None, fill=None, ax=None, contour_kwargs=None,
                      imshow_kwargs=None, return_fig=True, **_):
@@ -1214,7 +1229,7 @@ class datacube(object):
                                                r_taper=r_taper,
                                                q_taper=q_taper,
                                                w_i=w_i, w_t=w_t,
-                                               w_r0=w_r0,
+                                               w_t0=w_t0, w_r0=w_r0,
                                                w_dr=w_dr,
                                                z_func=z_func,
                                                w_func=w_func,

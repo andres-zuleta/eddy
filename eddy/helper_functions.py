@@ -262,10 +262,6 @@ def plot_corner(samples, labels=None, quantiles=[0.16, 0.5, 0.84]):
 # -- TRANSFORMATION MATRIX FUNCTIONS -- #
 
 def apply_matrix_warp(X, Y, Z, PA, inc, t, T):
-    print(PA)
-    print(inc)
-    print(t.shape)
-    print(T.shape)
     
     PA = np.radians(PA)
     inc = np.radians(inc)
@@ -276,19 +272,20 @@ def apply_matrix_warp(X, Y, Z, PA, inc, t, T):
     cosi = np.cos(inc)
     sini = np.sin(inc)
 
-    cost = np.cos(t)
-    sint = np.sin(t)
+    cosw = np.cos(t)
+    sinw = np.sin(t)
 
-    cosT = np.cos(T)
-    sinT = np.sin(T)
+    cost = np.cos(T)
+    sint = np.sin(T)
 
-    xprime = (-(Y*sint + Z*cost)*sini + (X*sinT + Y*cosT*cost - Z*sint*cosT)*cosi)*sinPA + (X*cosT - Y*sinT*cost + Z*sinT* sint)*cosPA
+    xprime = -(Y*sinw + Z*cosw)*sini*cosPA + (X*sint + Y*cost*cosw - Z*sinw*cost)*cosPA*cosi + (X*cost - Y*sint*cosw + Z*sint*sinw)*sinPA
     
-    yprime = (-(Y*sint + Z*cost)*sini + (X*sinT + Y*cosT*cost - Z*sint*cosT)*cosi)*cosPA - (X*cosT - Y*sinT*cost + Z*sinT* sint)*sinPA
+    yprime = (Y*sinw + Z*cosw)*sinPA*sini - (X*sint + Y*cost*cosw - Z*sinw*cost)*sinPA*cosi + (X*cost - Y*sint*cosw + Z*sint*sinw)*cosPA
     
-    zprime = -(Y*sint + Z*cost)*cosi - (X*sinT + Y*cosT*cost - Z*sint*cosT)*sini
+    zprime = (Y*sinw + Z*cosw)*cosi + (X*sint + Y*cost*cosw - Z*sinw*cost)*sini
 
-    return xprime, yprime, zprime
+    stack = np.stack([xprime, yprime, zprime])
+    return np.moveaxis(stack, 0, 2)
 
 ### We can maybe reduce the number of arguments
 def get_surface(r_i, r0=1.0, z0=0.0, psi=1.25, r_taper=80.0, q_taper=1.5, nphi=50):

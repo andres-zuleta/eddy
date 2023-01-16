@@ -810,9 +810,7 @@ class rotationmap(datacube):
 
     def _ln_likelihood(self, params):
         """Log-likelihood function. Simple chi-squared likelihood."""
-        model = self._make_model(params) # Several nan values inside the model
-        #print(model, 'model inside lokelihood')
-        #print(model.shape, 'model shape')
+        model = self._make_model(params)
         model[np.isnan(model)] = 0 # Set nan values to zero
         lnx2 = np.where(self.mask, np.power((self.data - model), 2), 0.0)
         lnx2 = -0.5 * np.sum(lnx2 * self.ivar)
@@ -821,9 +819,7 @@ class rotationmap(datacube):
     def _ln_probability(self, theta, *params_in):
         """Log-probablility function."""
         model = rotationmap._populate_dictionary(theta, params_in[0])
-        #print(model, 'model') # model parameters seem ok
         lnp = self._ln_prior(model)
-        #print(lnp, 'ln_prior(model)') # till this point is ok
         if np.isfinite(lnp):
             return lnp + self._ln_likelihood(model)
         return -np.inf
@@ -853,6 +849,7 @@ class rotationmap(datacube):
 
         self.set_prior('w_i', [-90.0, 90.0], 'flat')
         self.set_prior('w_t', [-180.0, 180.0], 'flat')
+        self.set_prior('w_t0', [-180.0, 180.0], 'flat')
         self.set_prior('w_r0', [0.0, 5.0], 'flat')
         self.set_prior('w_dr', [0.0, 2.5], 'flat')
 
@@ -1025,6 +1022,7 @@ class rotationmap(datacube):
         params['w_i'] = params.pop('w_i', None)
         params['w_r'] = params.pop('w_r', self.dpix)
         params['w_t'] = params.pop('w_t', None)
+        params['w_t0'] = params.pop('w_t0', 0.0)
         params['w_r0'] = params.pop('w_r0', 0.0)
         params['w_dr'] = params.pop('w_dr', 0.0)
 
@@ -1326,11 +1324,9 @@ class rotationmap(datacube):
     def _make_model(self, params):
         """Build the velocity model from the dictionary of parameters."""
         rvals, tvals, zvals = self.disk_coords(**params)
-        #print(self._v0.shape, 'exists!!!')
-        ### Use the Til's method to get the velocity
-        if params['shadowed']:
+        if params['shadowed']: # Til's method
             v0 = self._v0 + params['vlsr']
-        else:
+        else: # Rich's method
             vphi = params['vfunc'](rvals, tvals, zvals, params)
             v0 = self._proj_vphi(vphi, rvals, tvals, params) + params['vlsr']
         if params['beam']:
