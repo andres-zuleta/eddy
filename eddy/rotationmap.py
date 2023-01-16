@@ -700,9 +700,7 @@ class rotationmap(datacube):
             raise ValueError("type must be 'flat' or 'gaussian'.")
         if type == 'flat':
             def prior(p):
-                #print(f'{param} {p}')
                 if not min(args) <= p <= max(args):
-                    #pdb.set_trace()
                     return -np.inf
                 return max(-100.0, np.log(1.0 / (max(args) - min(args))))
         else:
