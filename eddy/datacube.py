@@ -208,31 +208,7 @@ class datacube(object):
         # Select the quickest pixel deprojection method.
         # First round is analytical forms where `z_func` is not specified.
 
-        z = None
-
-        if z_func is None and (w_i != None or w_t != None):
-            pass
-        else:
-            if z0 == 0.0:
-                r, t = self._get_midplane_polar_coords(x0, y0, inc, PA)
-                z = np.zeros(r.shape)
-            elif z0 > 0.0 and psi == 1.0 and not flared:
-                r, t, z = self._get_conical_polar_coords(x0, y0, inc, PA, z0)
-
-        # Here `z_func` can still be not provided, but must be defined based
-        # on the parameters provided (i.e., psi != 1.0).
-
-        if z is None:
-
-            r_cavity = 0.0 if r_cavity is None else r_cavity
-            r_taper = np.inf if r_taper is None else r_taper
-            q_taper = 1.0 if q_taper is None else q_taper
-            psi = 0.0 if psi is None else psi
-
-            w_i = 0.0 if w_i is None else w_i
-            w_t = 0.0 if w_t is None else w_t
-
-            # Define the emission surface and warp functions.
+        # Cycle through the different options for pixel deprojection.
 
         if z0 is None:
             r, t = self._get_midplane_polar_coords(x0, y0, inc, PA)
