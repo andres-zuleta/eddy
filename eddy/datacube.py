@@ -60,7 +60,7 @@ class datacube(object):
     # -- PIXEL DEPROJECTION -- #
 
     def disk_coords(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0, psi=1.0,
-                    r_cavity=0.0, r_taper=None, q_taper=None, w_i=0.0, w_t=0.0,
+                    r_cavity=0.0, r_taper=None, q_taper=1.0, w_i=0.0, w_t=0.0,
                     w_t0=0.0, w_r0=1.0, w_dr=1.0, z_func=None,
                     outframe='cylindrical', shadowed=False, force_side=None,
                     mstar=None, dist=None, **_):
@@ -195,10 +195,6 @@ class datacube(object):
         w_i = w_i if w_i < 90.0 else w_i - 180.0
         # Check that the necessary pairs are provided.
 
-        msg = "Must specify either both or neither of `{}` and `{}`."
-        if (r_taper is not None) != (q_taper is not None):
-            raise ValueError(msg.format('r_taper', 'q_taper'))
-
         msg = "Must specify all of the warp coorinates: (w_i, w_t)."
         if (w_i is not None) != (w_t is not None):
             raise ValueError(msg)
@@ -218,6 +214,7 @@ class datacube(object):
         else:
             if z_func is None:
                 r_taper = np.inf if r_taper is None else r_taper
+                z0 = 0.0 if z0 is None else z0
                 def z_func(r_in):
                     r = np.clip(r_in - r_cavity, a_min=0.0, a_max=None)
                     return z0 * r**psi * np.exp(-np.power(r/r_taper, q_taper))
@@ -238,7 +235,7 @@ class datacube(object):
                     return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
                 
                 if shadowed:
-                    coords = self._get_warp_TIL_coords_annuli(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, mstar=mstar, dist=dist)
+                    coords = self._get_warp_TIL_coords_annuli(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, mstar=mstar, dist=dist, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper)
                     #coords = self._get_warp_TIL_coords_XY(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, mstar=mstar, dist=dist)
                 else :
                     coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
@@ -419,11 +416,6 @@ class datacube(object):
         y_dep = np.cos(np.radians(inc)) * yw - np.sin(np.radians(inc)) * zw
         z_dep = np.sin(np.radians(inc)) * yw + np.cos(np.radians(inc)) * zw
 
-        if inc < 0.0:
-            y_dep = np.maximum.accumulate(y_dep, axis=0)
-        else:
-            y_dep = np.minimum.accumulate(y_dep[::-1], axis=0)[::-1]
-
         ### Rotate the whole disk
         x_rot, y_rot=self._rotate_coords(x_dep, y_dep, PA) 
 
@@ -437,8 +429,14 @@ class datacube(object):
                     (xdisk.flatten(), ydisk.flatten()),
                     method='linear').reshape(xdisk.shape)
 
-        r_obs = np.hypot(x_obs, y_obs)
-        t_obs = np.arctan2(y_obs, x_obs)
+        if inc < 0.0:
+            y_dep = np.maximum.accumulate(y_obs, axis=0)
+        else:
+            y_dep = np.minimum.accumulate(y_obs[::-1], axis=0)[::-1]
+
+        r_obs = np.hypot(x_obs, y_dep)
+
+        t_obs = np.arctan2(y_dep, x_obs)
         return r_obs, t_obs, z_func(r_obs)
 
     def _get_warp_TIL_coords_XY(self, x0, y0, inc, PA, w_i, w_t, w_t0, w_r0, w_dr, z_func, w_func, mstar, dist):
@@ -502,7 +500,7 @@ class datacube(object):
 
 
 
-    def _get_warp_TIL_coords_annuli(self, x0, y0, inc, PA, w_i, w_t, w_t0, w_r0, w_dr, z_func, w_func, mstar, dist):
+    def _get_warp_TIL_coords_annuli(self, x0, y0, inc, PA, w_i, w_t, w_t0, w_r0, w_dr, z_func, w_func, mstar, dist, z0, psi, r_taper, q_taper):
 
         ### TO DO
         # - integrate nphi to parameters
@@ -518,7 +516,7 @@ class datacube(object):
         r_i = np.linspace(0.0, rmax, npix)
         r_c = 0.5 * (r_i[1:] + r_i[:-1])
 
-        surf     = helper.get_surface(r_i, nphi=nphi, z0=0, r0=1, r_taper=1, q_taper=1)
+        surf     = helper.get_surface(r_i, nphi=nphi, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper)
         p0_c     = surf['points_c']
         p0_i     = surf['points_i']
         ri       = surf['ri']
@@ -1177,7 +1175,7 @@ class datacube(object):
             return fig
 
     def plot_surface(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None,
-                     r_cavity=None, r_taper=None, q_taper=None, w_i=None,
+                     r_cavity=None, r_taper=None, q_taper=1.0, w_i=None,
                      w_t=None, w_t0=None, w_r0=None, w_dr=None, z_func=None, w_func=None,
                      shadowed=False, mstar=None, dist=None, r_max=None,
                      mask=None, fill=None, ax=None, contour_kwargs=None,
