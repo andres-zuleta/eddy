@@ -240,6 +240,8 @@ class datacube(object):
                 else :
                     coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
                 r, t, z = coords
+            else:
+                r, t, z = self._get_shadowed_coords(x0, y0, inc, PA, z_func)
 
         # Return the values.
 
@@ -416,6 +418,11 @@ class datacube(object):
         y_dep = np.cos(np.radians(inc)) * yw - np.sin(np.radians(inc)) * zw
         z_dep = np.sin(np.radians(inc)) * yw + np.cos(np.radians(inc)) * zw
 
+        if inc < 0.0:
+            y_dep = np.maximum.accumulate(y_dep, axis=0)
+        else:
+            y_dep = np.minimum.accumulate(y_dep[::-1], axis=0)[::-1]
+            
         ### Rotate the whole disk
         x_rot, y_rot=self._rotate_coords(x_dep, y_dep, PA) 
 
@@ -429,14 +436,9 @@ class datacube(object):
                     (xdisk.flatten(), ydisk.flatten()),
                     method='linear').reshape(xdisk.shape)
 
-        if inc < 0.0:
-            y_dep = np.maximum.accumulate(y_obs, axis=0)
-        else:
-            y_dep = np.minimum.accumulate(y_obs[::-1], axis=0)[::-1]
+        r_obs = np.hypot(x_obs, y_obs)
 
-        r_obs = np.hypot(x_obs, y_dep)
-
-        t_obs = np.arctan2(y_dep, x_obs)
+        t_obs = np.arctan2(y_obs, x_obs)
         return r_obs, t_obs, z_func(r_obs)
 
     def _get_warp_TIL_coords_XY(self, x0, y0, inc, PA, w_i, w_t, w_t0, w_r0, w_dr, z_func, w_func, mstar, dist):
@@ -510,6 +512,7 @@ class datacube(object):
 
         ### Disk coords
         xdisk, ydisk = self._get_cart_sky_coords(0, 0)
+        rdisk = np.hypot(xdisk, ydisk)
         rmax = np.max(xdisk)
         npix = xdisk.shape[0]
 
@@ -531,7 +534,7 @@ class datacube(object):
 
         azi = 0
         inc = np.deg2rad(inc)
-        PA = np.deg2rad(PA+90) # Correct the PA
+        PA = np.deg2rad(PA + 90.0) # Correct the PA
 
         # Get the velocities
         def _vkep(p0, phi, mstar, dist):
@@ -572,9 +575,8 @@ class datacube(object):
         t_obs = values_interp[:, :, 2]
         vkep = values_interp[:, :, 0]
         
-        # 
-        inc_w = w_func(r_obs, w_i, w_r0, w_dr) + inc # Already in rad
-        self._v0 = vkep * np.cos(t_obs)#* np.sin(abs(inc_w))
+        inc_w = w_func(rdisk, w_i, w_r0, w_dr) + inc
+        self._v0 = vkep * np.cos(t_obs) * np.sin(abs(inc_w))
         
         self._v0[self._v0==self._v0[0,0]] = np.nan
         r_obs[r_obs==r_obs[0,0]] = np.nan
