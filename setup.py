@@ -31,11 +31,10 @@ if __name__ == "__main__":
     def run_setup(extensions):
         setup(
             name="astro-eddy",
-            version="2.2",
+            version="2.3.7",
             author="Richard Teague",
             author_email="rteague@mit.edu",
-            description=("Tools to recover expectionally precise rotation curves from "
-                        "spatially resolved spectra."),
+            description=("Tools to study the dynamics of protoplanetary disks."),
             long_description=long_description,
             long_description_content_type="text/markdown",
             url="https://github.com/richteague/eddy",

@@ -55,6 +55,8 @@ class annulus(object):
         if self.inc == 0.0:
             raise ValueError("Disk inclination must be non-zero.")
         self.inc_rad = np.radians(self.inc)
+        self.sini = np.sin(self.inc_rad)
+        self.cosi = np.cos(self.inc_rad)
         self.rotation = 'clockwise' if self.inc > 0 else 'anticlockwise'
         self.rms = self._estimate_RMS()
 
@@ -114,7 +116,7 @@ class annulus(object):
 
     # -- Measure the Velocity -- #
 
-    def get_vlos(self, p0=None, fit_method='SHO', fit_vrad=False,
+    def get_vlos(self, p0=None, fit_method='SHO', fit_vrad=False, fix_vlsr=None,
                  resample=None, optimize=True, nwalkers=32, nburnin=500,
                  nsteps=500, scatter=1e-3, signal='int', optimize_kwargs=None,
                  mcmc='emcee', mcmc_kwargs=None, centroid_method='quadratic'):
@@ -143,6 +145,9 @@ class annulus(object):
                 nothing is provided these will be guessed but this may not
                 result in very good starting positions.
             fit_vrad (bool): Include radial motion in the fit.
+            fix_vlsr (optional[bool]): Fix the systemic velocity to calculate
+                the deprojected vertical velocities. Only available for
+                `fit_method='SHO'`.
             resample (optional[bool]): Resampling method to apply. See
                 :func:`deprojected_spectrum` for more details.
             optimize (optional[bool]): Optimize the starting positions before
@@ -173,6 +178,8 @@ class annulus(object):
             raise ValueError("method must be 'dV', 'GP', 'SNR' or 'SHO'.")
         if fit_method == 'gp' and not celerite_installed:
             raise ImportError("Must install 'celerite' to use GP method.")
+        if fix_vlsr is not None and fit_method != 'sho':
+            print("WARNING: fix_vlsr only available for fit_method='SHO'.")
 
         # Run the appropriate methods.
 
@@ -204,10 +211,12 @@ class annulus(object):
             return popt[:2] if fit_vrad else popt[0]
 
         elif fit_method == 'sho':
-            popt, cvar = self.get_vlos_SHO(p0=p0, fit_vrad=fit_vrad,
+            popt, cvar = self.get_vlos_SHO(p0=p0, 
+                                           fit_vrad=fit_vrad,
+                                           fix_vlsr=fix_vlsr,
                                            centroid_method=centroid_method,
                                            optimize_kwargs=optimize_kwargs)
-            return (popt[:2], cvar[:2]) if fit_vrad else (popt[0], cvar[0])
+            return popt, cvar
 
     # -- Gaussian Processes Approach -- #
 
@@ -574,13 +583,21 @@ class annulus(object):
         width of the shifted-and-stacked azimuthally averaged spectrum.
 
         Args:
-            Coming Soon.
+            p0 (optional[list]): Starting positions for the optimization.
+            fit_vrad (optional[bool]): Whether to include the radial velocity
+                in the fit. Default is ``False``.
+            resample (optional[bool]): Resample the shifted spectra by this
+                factor. For example, resample = 2 will shift and bin the
+                spectrum down to sampling rate twice that of the original data.
+            optimize_kwargs (optional[dict]): Kwargs to pass to ``minimize``.
 
         Returns:
-            Coming Soon.
+            Velocities which minimize the line width of the shifted and stacked
+            spectrum.
         """
 
         # Starting positions.
+
         if p0 is None:
             p0 = self.guess_parameters(fit=True)[:2]
             if not fit_vrad:
@@ -588,6 +605,7 @@ class annulus(object):
         p0 = np.atleast_1d(p0)
 
         # Populate the kwargs.
+
         optimize_kwargs = {} if optimize_kwargs is None else optimize_kwargs
         optimize_kwargs['method'] = optimize_kwargs.get('method', 'Nelder-Mead')
         options = optimize_kwargs.pop('options', {})
@@ -597,7 +615,9 @@ class annulus(object):
         optimize_kwargs['options'] = options
 
         # Run the minimization.
-        res = minimize(self.deprojected_width, x0=p0,
+
+        res = minimize(self.deprojected_width,
+                       x0=p0,
                        args=(fit_vrad, resample),
                        **optimize_kwargs)
         if not res.success:
@@ -620,12 +640,15 @@ class annulus(object):
         """
         from .helper_functions import get_gaussian_width
         vrot, vrad = theta if fit_vrad else (theta, 0.0)
-        x, y = self.deprojected_spectrum(vrot, vrad, resample, scatter=False)
+        x, y = self.deprojected_spectrum(vrot=vrot,
+                                         vrad=vrad,
+                                         resample=resample,
+                                         scatter=False)
         return get_gaussian_width(*self._get_masked_spectrum(x, y))
 
     # -- Rotation Velocity by Fitting a SHO -- #
 
-    def get_vlos_SHO(self, p0=None, fit_vrad=False,
+    def get_vlos_SHO(self, p0=None, fit_vrad=False, fix_vlsr=None,
                      centroid_method='quadratic', optimize_kwargs=None):
         """
         Infer the disk-frame rotational (and, optionally, radial) velocity by
@@ -636,6 +659,8 @@ class annulus(object):
             p0 (optional[list]): Starting positions for the optimization.
             fit_vrad (optional[bool]): Whether to include the radial velocity
                 in the fit. Default is ``False``.
+            fix_vlsr (optional[float]): If provided, use this value to deproject
+                the vertical velocity component.
             centroid_method (optional[str]): Method used to determine the line
                 centroids, and must be one of ``'quadratic'``, ``'max'`` or
                 ``'gaussian'``.
@@ -657,7 +682,7 @@ class annulus(object):
             p0 = [A, C] if not fit_vrad else [A, B, C]
         assert len(p0) == 3 if fit_vrad else 2
 
-        # Set up curve_fit.
+        # Set up curve_fit. TODO: Is there a better fitting routine than this?
 
         optimize_kwargs = {} if optimize_kwargs is None else optimize_kwargs
         optimize_kwargs['p0'] = p0
@@ -671,17 +696,22 @@ class annulus(object):
             popt, cvar = curve_fit(SHO_double if fit_vrad else SHO,
                                    self.theta, v0, **optimize_kwargs)
         except TypeError:
-            popt = np.empty(2 if fit_vrad else 1)
+            popt = np.empty(3 if fit_vrad else 2)
             cvar = popt[:, None] * popt[None, :]
         cvar = np.diag(cvar)**0.5
 
         # Convert from projected velocities into disk-frame velocities.
+        # Note that C is only converted to vertical velocities if the systemic
+        # velocity is provided through `fix_vlsr`.
 
-        popt[0] /= np.sin(abs(self.inc_rad))
-        cvar[0] /= np.sin(abs(self.inc_rad))
+        popt[0] /= abs(self.sini)
+        cvar[0] /= abs(self.sini)
         if fit_vrad:
-            popt[1] /= -np.sin(self.inc_rad)
-            cvar[1] /= np.sin(self.inc_rad)
+            popt[1] /= -self.sini
+            cvar[1] /= abs(self.sini)
+        if fix_vlsr is not None:
+            popt[-1] = (fix_vlsr - popt[-1]) / self.cosi
+            cvar[-1] /= self.cosi
 
         # Return the optimized values.
 
@@ -734,7 +764,7 @@ class annulus(object):
         # Populate the kwargs. For some reason L-BFGS-B doesn't play nicely.
 
         optimize_kwargs = {} if optimize_kwargs is None else optimize_kwargs
-        optimize_kwargs['method'] = optimize_kwargs.get('method', 'Nelder-Mead')
+        optimize_kwargs['method'] = optimize_kwargs.get('method', 'Powell')
         options = optimize_kwargs.pop('options', {})
         options['maxiter'] = options.pop('maxiter', 10000)
         options['maxfun'] = options.pop('maxfun', 10000)
@@ -743,7 +773,8 @@ class annulus(object):
 
         # Run the minimization.
 
-        res = minimize(self.deprojected_nSNR, x0=p0,
+        res = minimize(self.deprojected_nSNR,
+                       x0=p0,
                        args=(fit_vrad, resample, signal),
                        **optimize_kwargs)
         if not res.success:
@@ -779,7 +810,10 @@ class annulus(object):
         """
         from .helper_functions import gaussian, fit_gaussian
         vrot, vrad = theta if fit_vrad else (theta, 0.0)
-        x, y = self.deprojected_spectrum(vrot, vrad, resample, scatter=False)
+        x, y = self.deprojected_spectrum(vrot=vrot,
+                                         vrad=vrad,
+                                         resample=resample,
+                                         scatter=False)
         x0, dx, A = fit_gaussian(x, y)
         noise = np.std(x[(x - x0) / dx > 3.0])  # Check: noise will vary.
         if signal == 'max':
@@ -1076,22 +1110,29 @@ class annulus(object):
         vpeaks, _ = self.line_centroids(method=method)
         vlsr = np.mean(vpeaks)
 
-        vrot = vpeaks[abs(self.theta).argmin()]
-        vrot -= vpeaks[abs(self.theta - np.pi).argmin()]
-        vrot *= 0.5
+        vrot_p = vpeaks[abs(self.theta).argmin()]
+        vrot_p -= vpeaks[abs(self.theta - np.pi).argmin()]
+        vrot_p *= 0.5
 
-        vrad = vpeaks[abs(self.theta - 0.5 * np.pi).argmin()]
-        vrad -= vpeaks[abs(self.theta + 0.5 * np.pi).argmin()]
-        vrad *= 0.5
+        vrad_p = vpeaks[abs(self.theta - 0.5 * np.pi).argmin()]
+        vrad_p -= vpeaks[abs(self.theta + 0.5 * np.pi).argmin()]
+        vrad_p *= -0.5
 
-        if not fit:
-            return vrot, vrad, vlsr
-        try:
-            from .helper_functions import SHO_double
-            return curve_fit(SHO_double, self.theta, vpeaks,
-                             p0=[vrot, vrad, vlsr], maxfev=10000)[0]
-        except Exception:
-            return vrot, vrad, vlsr
+        if fit:
+            try:
+                from .helper_functions import SHO_double
+                vrot_p, vrad_p = curve_fit(f=SHO_double,
+                                           xdata=self.theta,
+                                           ydata=vpeaks,
+                                           p0=[vrot_p, vrad_p, vlsr],
+                                           maxfev=10000)[0][:2]
+            except Exception:
+                print("Fitting failed...")
+
+        vrot = vrot_p / np.sin(abs(self.inc_rad))
+        vrad = -vrad_p / np.sin(self.inc_rad)
+
+        return vrot, vrad, vlsr
 
     # -- River Functions -- #
 
@@ -1160,8 +1201,8 @@ class annulus(object):
         averaged spectrum, by default a Gaussian profile.
 
         Args:
-            vrot (Optional[float]): Projected rotation velocity in [m/s].
-            vrad (Optional[float]): Projected radial velocity in [m/s].
+            vrot (Optional[float]): Rotation velocity in [m/s].
+            vrad (Optional[float]): Radial velocity in [m/s].
             resample (Optional[int/float/bool]): Resampling option. See
                 ``annulus.deprojected_spectrum`` for more details.
             plot_fit (Optional[bool/str]): Whether to overplot a fit to the
@@ -1357,10 +1398,29 @@ class annulus(object):
             return fig
 
     def plot_centroids(self, centroid_method='quadratic', plot_fit=None,
-                       fit_vrad=False, ax=None, return_fig=False,
+                       fit_vrad=False, fix_vlsr=None, ax=None, return_fig=False,
                        plot_kwargs=None):
         """
         Plot the measured line centroids as a function of polar angle.
+
+        Args:
+            centroid_method (Optional[str]): Method used to determine the line
+                centroid. Default is `'quadratic'`.
+            plot_fit (Optional[bool]): Whether to overplot a SHO fit to the
+                data.
+            fit_vrad (Optional[bool]): Whether to include a radial velocity
+                component to the fit.
+            fix_vlsr (Optional[bool]): Fix the systemic velocity to calculate
+                the deprojected vertical velocities.
+            ax (Optional[matploib axis]): Axis to plot the data (and fit) onto,
+                otherwise a new figure will be created.
+            return_fig (Optional[bool]): Whether to return the figure for
+                subsequent plotting.
+            plot_kwargs (Optional[dict]):
+
+        Returns:
+            Matplotlib figure. If `return_fig=True`. To access the axis use
+                ``ax=fig.axes[0]``. 
         """
 
         from .helper_functions import SHO_double
@@ -1369,8 +1429,12 @@ class annulus(object):
         else:
             return_fig = False
 
+        # Calculate the line centroids.
+
         v0, dv0 = self.line_centroids(method=centroid_method)
         dv0 = abs(dv0)
+
+        # Set the defaults for plotting.
 
         plot_kwargs = {} if plot_kwargs is None else plot_kwargs
         plot_kwargs['fmt'] = plot_kwargs.pop('fmt', 'o')
@@ -1378,6 +1442,8 @@ class annulus(object):
         plot_kwargs['ms'] = plot_kwargs.pop('ms', 4)
         plot_kwargs['lw'] = plot_kwargs.pop('lw', 1.25)
         plot_kwargs['capsize'] = plot_kwargs.pop('capsize', 2.5)
+
+        # Plot the data.
 
         L = ax.errorbar(self.theta_deg, v0, dv0, **plot_kwargs)
         ax.set_xlim(-180, 180)
@@ -1391,31 +1457,56 @@ class annulus(object):
 
             # Fit the data.
 
+            popt, cvar = self.get_vlos_SHO(fit_vrad=fit_vrad,
+                                           fix_vlsr=fix_vlsr,
+                                           centroid_method=centroid_method)
+
+            v_p, dv_p = popt[0] * abs(self.sini), cvar[0] * abs(self.sini)
             if fit_vrad:
-                popt, cvar = self.get_vlos_SHO(fit_vrad=True,
-                                               centroid_method=centroid_method)
-                v_p, v_r, vlsr = popt
-                dv_p, dv_r, _ = cvar
+                v_r, dv_r = popt[1] * self.sini, cvar[1] * abs(self.sini)
             else:
-                popt, cvar = self.get_vlos_SHO(fit_vrad=False,
-                                               centroid_method=centroid_method)
-                v_p, vlsr = popt
-                dv_p, _ = cvar
-                v_r = 0.0
+                v_r, dv_r = 0.0, 0.0
+            if fix_vlsr:
+                vlsr, dvlsr = fix_vlsr, 0.0
+                v_z, dv_z = popt[-1] * self.cosi, cvar[-1] * self.cosi
+            else:
+                vlsr, dvlsr = popt[-1], cvar[-1]
+                v_z, dv_z = None, None
+
+            # Note that as get_vlos_SHO returns the true values, so we need to
+            # reproject them.
 
             v0mod = SHO_double(self.theta_grid, v_p, v_r, vlsr)
             ax.plot(np.degrees(self.theta_grid), v0mod, lw=1.0, ls='--',
                     color='r', zorder=L[0].get_zorder()-10)
 
-            label = r'$v_{\phi,\, proj}$' + ' = {:.0f} '.format(v_p)
-            label += r'$\pm$' + ' {:.0f} (m/s)'.format(dv_p)
+            # Add in the labels. If the systemic velocity has a small error then
+            # we can skip the uncertainty. If a vlsr is not provided then we can
+            # skip the v_z label.
+
+            label = r'$v_{\rm LSR}$' + ' = {:.0f} '.format(vlsr)
+            if dvlsr > 0.5:
+                label += r'$\pm$' + ' {:.0f} '.format(dvlsr)
+            label += 'm/s'
             ax.text(0.975, 0.975, label, va='top', ha='right', color='r',
+                    transform=ax.transAxes)
+
+            label = r'$v_{\phi,\, proj}$' + ' = {:.0f} '.format(v_p)
+            label += r'$\pm$' + ' {:.0f} m/s'.format(dv_p)
+            ax.text(0.975, 0.900, label, va='top', ha='right', color='r',
                     transform=ax.transAxes)
 
             if fit_vrad:
                 label = r'$v_{r,\, proj}$' + ' = {:.0f} '.format(v_r)
-                label += r'$\pm$' + ' {:.0f} (m/s)'.format(dv_r)
-                ax.text(0.975, 0.90, label, va='top', ha='right', color='r',
+                label += r'$\pm$' + ' {:.0f} m/s'.format(dv_r)
+                ax.text(0.975, 0.825, label, va='top', ha='right', color='r',
+                        transform=ax.transAxes)
+                
+            if v_z is not None:
+                label = r'$v_{z,\, proj}$' + ' = {:.0f} '.format(v_z)
+                label += r'$\pm$' + ' {:.0f} m/s'.format(dv_z)
+                ax.text(0.975, 0.750 if fit_vrad else 0.825,
+                        label, va='top', ha='right', color='r',
                         transform=ax.transAxes)
 
             ylim = max(ax.get_ylim()[1] - vlsr, vlsr - ax.get_ylim()[0])

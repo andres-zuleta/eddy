@@ -28,15 +28,12 @@ class linecube(datacube):
     # -- ROTATION PROFILE FUNCTIONS -- #
 
     def get_velocity_profile(self, rbins=None, fit_method='GP', fit_vrad=False,
-                             x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0,
-                             psi=1.0, r_cavity=0.0, r_taper=np.inf,
-                             q_taper=1.0, w_i=None, w_r=None, w_t=None,
-                             z_func=None, shadowed=False, phi_min=None,
-                             phi_max=None, exclude_phi=False, abs_phi=False,
-                             mask_frame='disk', user_mask=None,
-                             beam_spacing=True, deproject=False, niter=1,
-                             get_vlos_kwargs=None, weighted_average=True,
-                             return_samples=False):
+            fix_vlsr=None, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0, psi=1.0,
+            r_cavity=0.0, r_taper=np.inf, q_taper=1.0, w_i=None, w_r=None,
+            w_t=None, z_func=None, shadowed=False, phi_min=None, phi_max=None,
+            exclude_phi=False, abs_phi=False, mask_frame='disk', user_mask=None,
+            beam_spacing=True, niter=1, get_vlos_kwargs=None,
+            weighted_average=True, return_samples=False):
         """
         Returns the rotational and, optionally, radial velocity profiles under
         the assumption that the disk is azimuthally symmetric (at least across
@@ -70,6 +67,9 @@ class linecube(datacube):
             fit_method (Optional[str]): Method used to infer the velocities.
             fit_vrad (Optional[bool]): Whether to include radial velocities in
                 the fit.
+            fix_vlsr (optional[bool]): Fix the systemic velocity to calculate
+                the deprojected vertical velocities. Only available for
+                `fit_method='SHO'`.
             x0 (Optional[float]): Source right ascension offset [arcsec].
             y0 (Optional[float]): Source declination offset [arcsec].
             inc (Optional[float]): Source inclination [degrees]. A positive
@@ -81,32 +81,48 @@ class linecube(datacube):
             z0 (Optional[float]): Aspect ratio at 1" for the emission surface.
                 To get the far side of the disk, make this number negative.
             psi (Optional[float]): Flaring angle for the emission surface.
-            z1 (Optional[float]): Correction term for ``z0``.
-            phi (Optional[float]): Flaring angle correction term for the
-                emission surface.
             r_cavity (Optional[float]): Outer radius of a cavity. Within this
                 region the emission surface is taken to be zero.
             w_i (Optional[float]): Warp inclination in [degrees] at the disk
                 center.
             w_r (Optional[float]): Scale radius of the warp in [arcsec].
             w_t (Optional[float]): Angle of nodes of the warp in [degrees].
-            z_func=None,
-            shadowed=False,
-            phi_min=None,
-            phi_max=None,
-            exclude_phi=False,
-            abs_phi=False,
-            mask_frame='disk',
-            user_mask=None,
-            beam_spacing=True,
-            deproject=False,
-            niter=1,
+            z_func (Optional[function]): A function which provides
+                :math:`z(r)`. Note that no checking will occur to make sure
+                this is a valid function.
+            shadowed (Optional[bool]): Whether to use the slower, but more
+                robust, deprojection method for shadowed disks.
+            phi_min (Optional[float]): Minimum polar angle of the segment of
+                the annulus in [deg]. Note this is the polar angle, not the
+                position angle.
+            phi_max (Optional[float]): Maximum polar angle of the segment of
+                the annulus in [deg]. Note this is the polar angle, not the
+                position angle.
+            exclude_phi (Optional[bool]): If ``True``, exclude the provided
+                polar angle range rather than include it.
+            abs_phi (Optional[bool]): If ``True``, take the absolute value of
+                the polar angle such that it runs from 0 [deg] to 180 [deg].
+            mask_frame (Optional[str]): Which frame to specify the mask in,
+                either ``'disk'``, the default, or ``'sky'``.
+            user_mask (Optional[array]): A user-specified mask to include. Must
+                have the same shape as ``self.data``.
+            beam_spacing (int): Sample pixels separated by roughly
+            `beam_spacing * bmaj` in azimuthal distance.
+            niter (Optional[int]): Number of iterations to run.
             get_vlos_kwargs=None,
-            weighted_average=True,
-            return_samples=False
+            weighted_average (Optional[bool]): Whether to combine multiple
+                iterations with a weighted average and standard deviation,
+                ``weighted_average=True``, or the traditional mean and standard
+                deviation, ``weighted_average=False``.
+            return_samples (Optional[bool]): Whether to return the samples
+                instead of combining them.
 
         Returns:
-            TBD
+            samples (array): If ``return_samples=True``. The array of ``niter``
+                samples of the velocity profiles.
+            rvals, profile, uncertainty (array, array, array): If
+                ``return_samples=False``. The arrays of radial locations and
+                combined velocity and uncertainties.
         """
 
         if niter == 0:
@@ -118,6 +134,7 @@ class linecube(datacube):
             return self._velocity_profile(rbins=rbins,
                                           fit_method=fit_method,
                                           fit_vrad=fit_vrad,
+                                          fix_vlsr=fix_vlsr,
                                           x0=x0,
                                           y0=y0,
                                           inc=inc,
@@ -149,6 +166,7 @@ class linecube(datacube):
         samples = [self._velocity_profile(rbins=rbins,
                                           fit_method=fit_method,
                                           fit_vrad=fit_vrad,
+                                          fix_vlsr=fix_vlsr,
                                           x0=x0,
                                           y0=y0,
                                           inc=inc,
@@ -173,22 +191,29 @@ class linecube(datacube):
                                           get_vlos_kwargs=get_vlos_kwargs)
                    for _ in range(niter)]
 
-        # Just return the samples.
+        # Just return the samples if requested.
 
         if return_samples:
             return samples
+        
         rpnts = samples[0][0]
         profiles = np.array([s[1] for s in samples])
 
-        # Calculate weights.
+        # Calculate weights, making sure they are finite and not all summing to
+        # zero.
 
         if weighted_average:
             weights = [1.0 / s[2] for s in samples]
             weights = np.where(np.isfinite(weights), weights, 0.0)
         else:
             weights = np.ones(profiles.shape)
+
         if np.all(np.sum(weights, axis=0) == 0.0):
             weights = np.ones(profiles.shape)
+        
+        weights = np.where(np.isfinite(weights), weights, 1.0)
+        weights += 1e-10 * np.random.randn(weights.size).reshape(weights.shape)
+        
         M = np.sum(weights != 0.0, axis=0)
 
         # Weighted average.
@@ -201,17 +226,24 @@ class linecube(datacube):
         uncertainty = np.sum(uncertainty, axis=0)
         uncertainty /= (M - 1.0) / M * np.sum(weights, axis=0)
         uncertainty = np.sqrt(uncertainty)
+
         return rpnts, profile, uncertainty
 
     def _velocity_profile(self, rbins=None, fit_method='GP', fit_vrad=False,
-                          x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0,
-                          psi=1.0, r_cavity=0.0, r_taper=np.inf, q_taper=1.0,
-                          w_i=None, w_r=None, w_t=None, z_func=None,
-                          shadowed=False, phi_min=None, phi_max=None,
-                          exclude_phi=False, abs_phi=False, mask_frame='disk',
-                          user_mask=None, beam_spacing=True, deproject=False,
-                          get_vlos_kwargs=None):
-        """Returns the velocity (rotational and radial) profiles."""
+            fix_vlsr=None, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0, psi=1.0,
+            r_cavity=0.0,  r_taper=np.inf, q_taper=1.0, w_i=None, w_r=None,
+            w_t=None, z_func=None, shadowed=False, phi_min=None, phi_max=None,
+            exclude_phi=False, abs_phi=False, mask_frame='disk',
+            user_mask=None, beam_spacing=True, get_vlos_kwargs=None):
+        """
+        Returns the velocity (rotational and radial) profiles.
+
+        Args:
+            TBD
+
+        Returns:
+            TBD
+        """
 
         # Define the radial binning.
 
@@ -222,7 +254,8 @@ class linecube(datacube):
         # Set up the kwargs for the fitting.
 
         kw = {} if get_vlos_kwargs is None else get_vlos_kwargs
-        kw['fit_vrad'] = kw.pop('fit_vrad', fit_vrad)
+        kw['fit_vrad'] = fit_vrad
+        kw['fix_vlsr'] = fix_vlsr
         kw['fit_method'] = fit_method
 
         # Cycle through the annuli.
@@ -276,12 +309,6 @@ class linecube(datacube):
         if profiles.shape[0] == rpnts.size:
             profiles = profiles.T
             uncertainties = uncertainties.T
-
-        # Deproject the velocity profiles to account for the inclination.
-
-        if deproject:
-            profiles /= np.sin(np.radians(abs(inc)))
-            uncertainties /= np.sin(np.radians(abs(inc)))
 
         return rpnts, profiles, uncertainties
 
@@ -356,40 +383,6 @@ class linecube(datacube):
         return annulus(spectra=dvals, pvals=pvals, velax=self.velax, inc=inc,
                        **annulus_kwargs)
 
-    def _independent_samples(self, beam_spacing, rvals, pvals, dvals):
-        """Returns spatially independent samples."""
-
-        if not beam_spacing:
-            return rvals, pvals, dvals
-
-        # Order pixels in increasing phi.
-
-        idxs = np.argsort(pvals)
-        dvals, pvals = dvals[idxs], pvals[idxs]
-
-        # Calculate the sampling rate.
-
-        sampling = float(beam_spacing) * self.bmaj
-        sampling /= np.mean(rvals) * np.median(np.diff(pvals))
-        sampling = np.floor(sampling).astype('int')
-
-        # If the sampling rate is above 1, start at a random location in
-        # the array and sample at this rate, otherwise don't sample. This
-        # happens at small radii, for example.
-
-        if sampling > 1:
-            start = np.random.randint(0, pvals.size)
-            rvals = np.concatenate([rvals[start:], rvals[:start]])
-            pvals = np.concatenate([pvals[start:], pvals[:start]])
-            dvals = np.vstack([dvals[start:], dvals[:start]])
-            rvals = rvals[::sampling]
-            pvals = pvals[::sampling]
-            dvals = dvals[::sampling]
-        else:
-            print("Pixels appear to be close to spatially independent.")
-
-        return rvals, pvals, dvals
-
     # -- PLOTTING FUNCTIONS -- #
 
     def plot_mask(self, ax, r_min=None, r_max=None, exclude_r=False,
@@ -431,9 +424,6 @@ class linecube(datacube):
             z0 (Optional[float]): Emission height in [arcsec] at a radius of
                 1".
             psi (Optional[float]): Flaring angle of the emission surface.
-            z1 (Optional[float]): Correction to emission height at 1" in
-                [arcsec].
-            phi (Optional[float]): Flaring angle correction term.
             z_func (Optional[function]): A function which provides
                 :math:`z(r)`. Note that no checking will occur to make sure
                 this is a valid function.
