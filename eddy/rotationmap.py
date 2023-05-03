@@ -1274,10 +1274,10 @@ class rotationmap(datacube):
         """Project the rotational velocity onto the sky."""
         if params['w_i'] != 0.0:
             # obtain inclination matrix for warp + global inclination
+            #print('here')
             inc_w = self._logistic(rvals, params['w_i'], params['w_r0'], params['w_dr']) + params['inc']
             return v_phi * np.cos(tvals) * np.sin(abs(np.radians(inc_w)))
         else:
-            print('No warp')
             return v_phi * np.cos(tvals) * np.sin(abs(np.radians(params['inc'])))
 
     def _proj_vrad(self, v_rad, rvals, tvals, params):
@@ -1302,7 +1302,10 @@ class rotationmap(datacube):
         """Build the velocity model from the dictionary of parameters."""
         rvals, tvals, zvals = self.disk_coords(**params)
         if params['shadowed']: # Til's method
-            v0 = self._v0 + params['vlsr']
+            #v0 = self._v0 + params['vlsr']
+            #print('make model')
+            vphi = params['vfunc'](rvals, tvals, zvals, params)
+            v0 = self._proj_vphi(vphi, rvals, tvals, params) + params['vlsr']
         else: # Rich's method
             vphi = params['vfunc'](rvals, tvals, zvals, params)
             v0 = self._proj_vphi(vphi, rvals, tvals, params) + params['vlsr']

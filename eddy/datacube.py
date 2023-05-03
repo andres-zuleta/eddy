@@ -241,7 +241,10 @@ class datacube(object):
                     coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
                 r, t, z = coords
             else:
-                r, t, z = self._get_shadowed_coords(x0, y0, inc, PA, z_func)
+                if shadowed:
+                    r, t, z = self._get_shadowed_coords(x0, y0, inc, PA, z_func)
+                else:
+                    r, t, z = self._get_flared_coords(x0, y0, inc, PA, z_func)
 
         # Return the values.
 
@@ -491,7 +494,7 @@ class datacube(object):
         t_obs = values_interp[:, :, 2]
         vkep  = values_interp[:, :, 0]
         
-        #inc_w = w_func(r_obs, w_i, w_r0, w_dr) + inc # Already in rad
+        inc_w = w_func(r_obs, w_i, w_r0, w_dr) + inc # Already in rad
         self._v0 = vkep * np.cos(t_obs)#* np.sin(abs(inc_w))
         
         self._v0[self._v0==self._v0[0,0]] = np.nan
@@ -506,12 +509,11 @@ class datacube(object):
 
         ### TO DO
         # - integrate nphi to parameters
-        # - use of an arbitrary z_func
         
-        nphi = 32
+        nphi = 64
 
         ### Disk coords
-        xdisk, ydisk = self._get_cart_sky_coords(0, 0)
+        xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
         rdisk = np.hypot(xdisk, ydisk)
         rmax = np.max(xdisk)
         npix = xdisk.shape[0]
@@ -534,7 +536,7 @@ class datacube(object):
 
         azi = 0
         inc = np.deg2rad(inc)
-        PA = np.deg2rad(PA + 90.0) # Correct the PA
+        PA = np.deg2rad(PA) # Correct the PA
 
         # Get the velocities
         def _vkep(p0, phi, mstar, dist):
@@ -549,10 +551,10 @@ class datacube(object):
             return np.moveaxis(v, 0, 2)
         
         # Get the rotational velocity
-        vkep_i = _vkep(p0_i, phii, mstar, dist)
+        #vkep_i = _vkep(p0_i, phii, mstar, dist)
 
-        p1_i = eddy.fmodule.apply_matrix2d_r(p0_i, warp_i, twist_i, inc, PA, azi)
-        v1_i = eddy.fmodule.apply_matrix2d_r(vkep_i, warp_i, twist_i, inc, PA, azi)
+        p1_i = eddy.fmodule.apply_matrix2d_r2(p0_i, warp_i, twist_i, inc, PA, azi)
+        #v1_i = eddy.fmodule.apply_matrix2d_r(vkep_i, warp_i, twist_i, inc, PA, azi)
 
         ### Interpolate on sky plane
 
@@ -566,23 +568,25 @@ class datacube(object):
         img_yc = 0.5 * (img_yi[1:, 1:] + img_yi[1:, :-1]) + y0
 
         X, Y, Z = p1_i.T
-        vxi, vyi, vzi = v1_i.T
+        #vxi, vyi, vzi = v1_i.T
 
-        values = np.stack((vzi, ri.T, phii.T)).transpose(1,2,0)
+        #values = np.stack((np.zeros_like(ri.T), ri.T, phii.T)).transpose(1,2,0)
+        values = np.stack((ri.T, phii.T)).transpose(1,2,0)
 
         z, values_interp = eddy.fmodule.interpolate_grid(X, Y, Z, values, img_xc, img_yc)
-        r_obs = values_interp[:, :, 1]
-        t_obs = values_interp[:, :, 2]
-        vkep = values_interp[:, :, 0]
+        r_obs = values_interp[:, :, 0]
+        t_obs = values_interp[:, :, 1]
+        #vkep = values_interp[:, :, 0]
+        #self._vvkep = vkep
         
-        inc_w = w_func(rdisk, w_i, w_r0, w_dr) + inc
-        self._v0 = vkep * np.cos(t_obs) * np.sin(abs(inc_w))
+        #inc_w = w_func(rdisk, w_i, w_r0, w_dr) + inc
+        #self._v0 = vkep * np.cos(t_obs)# * np.sin(abs(inc_w))
         
-        self._v0[self._v0==self._v0[0,0]] = np.nan
+        #self._v0[self._v0==self._v0[0,0]] = np.nan
         r_obs[r_obs==r_obs[0,0]] = np.nan
         t_obs[t_obs==t_obs[0,0]] = np.nan
 
-        return r_obs, t_obs, z
+        return r_obs, t_obs, z_func(r_obs)
 
     def _get_diskframe_coords(self):
         """Disk-frame coordinates based on the cube axes."""
