@@ -100,7 +100,7 @@ w_t0:
     default: null
     prior_type: 'flat'
     prior_values:
-        - 360.0
+        - 180.0
 
 w_r0:
     default: 0.0
