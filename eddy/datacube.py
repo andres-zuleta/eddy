@@ -62,7 +62,7 @@ class datacube(object):
 
     def disk_coords(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0, psi=1.0,
                     r_cavity=0.0, r_taper=None, q_taper=1.0, w_i=0.0, w_t=0.0,
-                    w_t0=0.0, w_r0=1.0, w_dr=1.0, z_func=None,
+                    w_t0=0.0, w_r0=1.0, w_dr=1.0, z_func=None, mstar=None, dist=None,
                     outframe='cylindrical', shadowed=False, flatten=False, **_):
         r"""
         Get the disk coordinates given certain geometrical parameters and an
@@ -204,13 +204,8 @@ class datacube(object):
                     r0 = 1.0 if r0 is None else r0
                     dr = 1.0 if dr is None else dr
                     return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
-                
-                if shadowed:
-                    coords = self._get_warp_TIL_coords_annuli(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper)
-                    #coords = self._get_warp_TIL_coords_XY(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, mstar=mstar, dist=dist)
-                else :
-                    coords = self._get_warp_FAST_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func)
-                r, t, z = coords
+
+                r, t, z = self._get_warp_coords(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper, mstar=mstar, dist=dist)
             else:
                 if shadowed:
                     r, t, z = self._get_shadowed_coords(x0, y0, inc, PA, z_func)
@@ -529,68 +524,7 @@ class datacube(object):
         t_obs = np.arctan2(y_obs, x_obs)
         return r_obs, t_obs, z_func(r_obs)
 
-    def _get_warp_TIL_coords_XY(self, x0, y0, inc, PA, w_i, w_t, w_t0, w_r0, w_dr, z_func, w_func, mstar, dist):
-
-        xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
-        rmax = np.max(xdisk)
-        npix = xdisk.shape[0]
-
-        rdisk = np.hypot(xdisk, ydisk)
-        tdisk = np.arctan2(ydisk, xdisk)
-        zdisk = z_func(rdisk)
-
-        ### Add the warp by tilting and twisting annuli
-        t = w_func(rdisk, w_i, w_r0, w_dr)
-        T = w_func(rdisk, w_t, w_r0, w_dr) + np.deg2rad(w_t0)
-
-        def _vkep(rvals, tvals, zvals, mstar, dist):
-            r_m = rvals * sc.au * dist
-            z_m = zvals * sc.au * dist
-            vkep = sc.G * mstar * self.msun * np.power(r_m, 2)
-
-            v = np.sqrt(vkep * np.power(np.hypot(r_m, z_m), -3))
-            v = v * np.array([np.ones_like(tvals), np.ones_like(tvals), np.zeros_like(tvals)])
-            return np.moveaxis(v, 0, 2)
-        
-        vkep0 = _vkep(rdisk, tdisk, zdisk, mstar, dist)
-        vx, vy, vz = vkep0[:, :, 0], vkep0[:, :, 1], vkep0[:, :, 2]
-
-        p1 = helper.apply_matrix_warp(xdisk, ydisk, zdisk, PA+90, inc, t, T)
-        v1 = helper.apply_matrix_warp(vx, vy, vz, PA+90, inc, t, T)
-
-        ### Interpolate on sky plane
-
-        _gx = np.linspace(-rmax, rmax, npix + 1)
-        _gy = np.linspace(-rmax, rmax, npix + 1)
-        img_xi, img_yi = np.meshgrid(_gx, _gy, indexing='ij')
-
-        x0, y0 = -y0, x0 # Redefine to match offsets
-        
-        img_xc = 0.5 * (img_xi[1:, 1:] + img_xi[:-1, 1:]) + x0
-        img_yc = 0.5 * (img_yi[1:, 1:] + img_yi[1:, :-1]) + y0
-
-        X, Y, Z = p1.T
-        vxi, vyi, vzi = v1.T
-
-        values = np.stack((vzi, rdisk.T, tdisk.T)).transpose(1,2,0)
-
-        z, values_interp = eddy.fmodule.interpolate_grid(X, Y, Z, values, img_xc, img_yc)
-        r_obs = values_interp[:, :, 1]
-        t_obs = values_interp[:, :, 2]
-        vkep  = values_interp[:, :, 0]
-        
-        inc_w = w_func(r_obs, w_i, w_r0, w_dr) + inc # Already in rad
-        self._v0 = vkep * np.cos(t_obs)#* np.sin(abs(inc_w))
-        
-        self._v0[self._v0==self._v0[0,0]] = np.nan
-        r_obs[r_obs==r_obs[0,0]] = np.nan
-        t_obs[t_obs==t_obs[0,0]] = np.nan
-
-        return r_obs, t_obs, z
-
-
-
-    def _get_warp_TIL_coords_annuli(self, x0, y0, inc, PA, w_i, w_t, w_t0, w_r0, w_dr, z_func, w_func, mstar, dist, z0, psi, r_taper, q_taper):
+    def _get_warp_coords(self, x0, y0, inc, PA, w_i, w_t, w_t0, w_r0, w_dr, z_func, w_func, mstar, dist, z0, psi, r_taper, q_taper):
 
         ### TO DO
         # - integrate nphi to parameters
@@ -601,9 +535,9 @@ class datacube(object):
         xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
         rdisk = np.hypot(xdisk, ydisk)
         rmax = np.max(xdisk)
-        npix = xdisk.shape[0]
+        npixx, npixy = xdisk.shape
 
-        r_i = np.linspace(0.0, rmax, npix)
+        r_i = np.linspace(0.0, rmax, npixx)
         r_c = 0.5 * (r_i[1:] + r_i[:-1])
 
         surf     = helper.get_surface(r_i, nphi=nphi, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper)
@@ -619,9 +553,8 @@ class datacube(object):
         warp_i  = w_func(r_i, w_i, w_r0, w_dr)
         twist_i = w_func(r_i, w_t, w_r0, w_dr) + np.deg2rad(w_t0)
 
-        azi = 0
-        inc = np.deg2rad(inc)
-        PA = np.deg2rad(PA) # Correct the PA
+        inc_obs = np.deg2rad(inc)
+        PA_obs = np.deg2rad(PA)
 
         # Get the velocities
         def _vkep(p0, phi, mstar, dist):
@@ -630,21 +563,24 @@ class datacube(object):
 
             r_m = r_vals * sc.au * dist
             z_m = z_vals * sc.au * dist
+            
             vkep = sc.G * mstar * self.msun * np.power(r_m, 2)
             v = np.sqrt(vkep * np.power(np.hypot(r_m, z_m), -3))
-            v = v * np.array([np.ones_like(phi), np.ones_like(phi), np.zeros_like(phi)])
+            v = v  * np.array([-np.sin(phi), np.cos(phi), np.zeros_like(phi)])
             return np.moveaxis(v, 0, 2)
         
         # Get the rotational velocity
-        #vkep_i = _vkep(p0_i, phii, mstar, dist)
+        vkep_i = _vkep(p0_i, phii, mstar, dist)
 
-        p1_i = eddy.fmodule.apply_matrix2d_r2(p0_i, warp_i, twist_i, inc, PA, azi)
-        #v1_i = eddy.fmodule.apply_matrix2d_r(vkep_i, warp_i, twist_i, inc, PA, azi)
+        #p1_i = eddy.fmodule.apply_matrix2d_r(p0_i, warp_i, twist_i, inc_obs, PA_obs)
+        #v1_i = eddy.fmodule.apply_matrix2d_r(vkep_i, warp_i, twist_i, inc_obs, PA_obs)
+        p1_i = helper.apply_matrix2d(p0_i, warp_i, twist_i, inc_obs, PA_obs)
+        v1_i = helper.apply_matrix2d(vkep_i, warp_i, twist_i, inc_obs, PA_obs)
 
         ### Interpolate on sky plane
 
-        _gx = np.linspace(-r_i[-1], r_i[-1], npix + 1)
-        _gy = np.linspace(-r_i[-1], r_i[-1], npix + 1)
+        _gx = np.linspace(-r_i[-1], r_i[-1], npixx + 1)
+        _gy = np.linspace(r_i[-1], -r_i[-1], npixy + 1)
         img_xi, img_yi = np.meshgrid(_gx, _gy, indexing='ij')
 
         x0, y0 = -y0, x0 # Redefine to match offsets
@@ -653,21 +589,17 @@ class datacube(object):
         img_yc = 0.5 * (img_yi[1:, 1:] + img_yi[1:, :-1]) + y0
 
         X, Y, Z = p1_i.T
-        #vxi, vyi, vzi = v1_i.T
+        vxi, vyi, vzi = v1_i.T
 
-        #values = np.stack((np.zeros_like(ri.T), ri.T, phii.T)).transpose(1,2,0)
-        values = np.stack((ri.T, phii.T)).transpose(1,2,0)
+        values = np.stack((vzi, ri.T, phii.T)).transpose(1,2,0)
 
         z, values_interp = eddy.fmodule.interpolate_grid(X, Y, Z, values, img_xc, img_yc)
-        r_obs = values_interp[:, :, 0]
-        t_obs = values_interp[:, :, 1]
-        #vkep = values_interp[:, :, 0]
-        #self._vvkep = vkep
+        v0 = values_interp[:, :, 0]
+        r_obs = values_interp[:, :, 1]
+        t_obs = values_interp[:, :, 2] - np.pi
+        self._v0 = v0
         
-        #inc_w = w_func(rdisk, w_i, w_r0, w_dr) + inc
-        #self._v0 = vkep * np.cos(t_obs)# * np.sin(abs(inc_w))
-        
-        #self._v0[self._v0==self._v0[0,0]] = np.nan
+        self._v0[self._v0==self._v0[0,0]] = np.nan
         r_obs[r_obs==r_obs[0,0]] = np.nan
         t_obs[t_obs==t_obs[0,0]] = np.nan
 
