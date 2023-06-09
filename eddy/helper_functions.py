@@ -469,33 +469,28 @@ def plot_corner(samples, labels=None, quantiles=[0.16, 0.5, 0.84]):
 
 # -- TRANSFORMATION MATRIX FUNCTIONS -- #
 
-def apply_matrix_warp(X, Y, Z, PA, inc, t, T):
-    
-    PA = np.radians(PA)
-    inc = np.radians(inc)
+def apply_matrix2d(p0, warp, twist, inc_, PA_):
+    x = p0[:, :, 0]
+    y = p0[:, :, 1]
+    z = p0[:, :, 2]
 
-    cosPA = np.cos(PA)
-    sinPA = np.sin(PA)
+    warp = warp[:, None]
+    twist = twist[:, None]
 
-    cosi = np.cos(inc)
-    sini = np.sin(inc)
+    cosw = np.cos(warp)
+    sinw = np.sin(warp)
 
-    cosw = np.cos(t)
-    sinw = np.sin(t)
+    cost = np.cos(twist)
+    sint = np.sin(twist)
 
-    cost = np.cos(T)
-    sint = np.sin(T)
+    xp = x*(-np.sin(PA_)*np.sin(twist)*np.cos(inc_) + np.cos(PA_)*np.cos(twist)) + y*((-np.sin(PA_)*np.cos(inc_)*np.cos(twist) - np.sin(twist)*np.cos(PA_))*np.cos(warp) + np.sin(PA_)*np.sin(inc_)*np.sin(warp)) + z*(-(-np.sin(PA_)*np.cos(inc_)*np.cos(twist) - np.sin(twist)*np.cos(PA_))*np.sin(warp) + np.sin(PA_)*np.sin(inc_)*np.cos(warp))
 
-    xprime = -(Y*sinw + Z*cosw)*sini*cosPA + (X*sint + Y*cost*cosw - Z*sinw*cost)*cosPA*cosi + (X*cost - Y*sint*cosw + Z*sint*sinw)*sinPA
-    
-    yprime = (Y*sinw + Z*cosw)*sinPA*sini - (X*sint + Y*cost*cosw - Z*sinw*cost)*sinPA*cosi + (X*cost - Y*sint*cosw + Z*sint*sinw)*cosPA
-    
-    zprime = (Y*sinw + Z*cosw)*cosi + (X*sint + Y*cost*cosw - Z*sinw*cost)*sini
+    yp = x*(np.sin(PA_)*np.cos(twist) + np.sin(twist)*np.cos(PA_)*np.cos(inc_)) + y*((-np.sin(PA_)*np.sin(twist) + np.cos(PA_)*np.cos(inc_)*np.cos(twist))*np.cos(warp) - np.sin(inc_)*np.sin(warp)*np.cos(PA_)) + z*(-(-np.sin(PA_)*np.sin(twist) + np.cos(PA_)*np.cos(inc_)*np.cos(twist))*np.sin(warp) - np.sin(inc_)*np.cos(PA_)*np.cos(warp))
 
-    stack = np.stack([xprime, yprime, zprime])
-    return np.moveaxis(stack, 0, 2)
+    zp = x*np.sin(inc_)*np.sin(twist) + y*(np.sin(inc_)*np.cos(twist)*np.cos(warp) + np.sin(warp)*np.cos(inc_)) + z*(-np.sin(inc_)*np.sin(warp)*np.cos(twist) + np.cos(inc_)*np.cos(warp))
 
-### We can maybe reduce the number of arguments
+    return np.moveaxis([xp, yp, zp], 0, 2)
+
 def get_surface(r_i, r0=1.0, z0=0.0, psi=1.25, r_taper=80.0, q_taper=1.5, nphi=50):
 
     nr = len(r_i) - 1
