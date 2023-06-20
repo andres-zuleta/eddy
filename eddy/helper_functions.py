@@ -469,7 +469,29 @@ def plot_corner(samples, labels=None, quantiles=[0.16, 0.5, 0.84]):
 
 # -- TRANSFORMATION MATRIX FUNCTIONS -- #
 
-def apply_matrix2d(p0, warp, twist, inc_, PA_):
+def apply_matrix2d_s(p0, warp, twist):
+    
+    x = p0[:, :, 0]
+    y = p0[:, :, 1]
+    z = p0[:, :, 2]
+
+    warp = warp[:, None]
+    twist = twist[:, None]
+
+    cosw = np.cos(warp)
+    sinw = np.sin(warp)
+    
+    cost = np.cos(-twist)
+    sint = np.sin(-twist)
+    
+    xp = x*cost - y*sint*cosw + z*sint*sinw
+    yp = x*sint + y*cost*cosw - z*sinw*cost
+    zp = y*sinw + z*cosw
+
+    return np.moveaxis([xp, yp, zp], 0, 2)
+
+
+def apply_matrix2d_d(p0, warp, twist, inc_, PA_):
     x = p0[:, :, 0]
     y = p0[:, :, 1]
     z = p0[:, :, 2]
