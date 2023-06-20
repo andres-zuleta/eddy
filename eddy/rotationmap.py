@@ -1359,6 +1359,8 @@ class rotationmap(datacube):
     def _make_model(self, params):
         """Build the velocity model from the dictionary of parameters."""
         rvals, tvals, zvals = self.disk_coords(**params)
+        vphi = params['vfunc'](rvals, tvals, zvals, params)
+        v0 = self._proj_vphi(vphi, rvals, tvals, params) + params['vlsr']
         if params['shadowed']: # Obtain the velocity using interpolation
             v0 = self._v0 + params['vlsr']
         if params['beam']:
