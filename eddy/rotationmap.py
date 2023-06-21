@@ -1088,7 +1088,7 @@ class rotationmap(datacube):
 
     def evaluate_models(self, samples=None, params=None, draws=50,
                         collapse_func=np.mean, coords_only=False,
-                        method='None', profile_only=False):
+                        profile_only=False):
         """
         Evaluate models based on the samples provided and the parameter
         dictionary. If ``draws`` is an integer, it represents the number of
@@ -1134,7 +1134,7 @@ class rotationmap(datacube):
                     return self._make_profile(verified_params)
                 else:
                     print('METHOD')
-                    return self._make_model(verified_params, method=method)
+                    return self._make_model(verified_params)
 
         nparam = np.sum([type(params[k]) is int for k in params.keys()])
         if samples.shape[1] != nparam:
@@ -1338,8 +1338,6 @@ class rotationmap(datacube):
     def _proj_vphi(self, v_phi, rvals, tvals, params):
         """Project the rotational velocity onto the sky."""
         if params['w_i'] != 0.0:
-            # obtain inclination matrix for warp + global inclination
-            #print('here')
             inc_w = self._logistic(rvals, params['w_i'], params['inc'], params['w_r0'], params['w_dr'])
             return v_phi * np.cos(tvals) * np.sin(abs(np.radians(inc_w)))
         else:
@@ -1369,10 +1367,8 @@ class rotationmap(datacube):
         vphi = params['vfunc'](rvals, tvals, zvals, params)
         v0 = self._proj_vphi(vphi, rvals, tvals, params) + params['vlsr']
         if params['method'] == 'DISK': # Obtain the velocity using interpolation
-            print('velocity disk')
             v0 = self._v0 + params['vlsr']
         if params['method'] == 'SKY':
-            print('velocity sky')
             vphi = params['vfunc'](rvals, tvals, zvals, params)
             v0 = self._proj_vphi(vphi, rvals, tvals, params) + params['vlsr']
         if params['beam']:
