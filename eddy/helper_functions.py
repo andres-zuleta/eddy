@@ -505,11 +505,15 @@ def apply_matrix2d_d(p0, warp, twist, inc_, PA_):
     cost = np.cos(twist)
     sint = np.sin(twist)
 
-    xp = x*(-np.sin(PA_)*np.sin(twist)*np.cos(inc_) + np.cos(PA_)*np.cos(twist)) + y*((-np.sin(PA_)*np.cos(inc_)*np.cos(twist) - np.sin(twist)*np.cos(PA_))*np.cos(warp) + np.sin(PA_)*np.sin(inc_)*np.sin(warp)) + z*(-(-np.sin(PA_)*np.cos(inc_)*np.cos(twist) - np.sin(twist)*np.cos(PA_))*np.sin(warp) + np.sin(PA_)*np.sin(inc_)*np.cos(warp))
+    cosPA = np.cos(PA_)
+    sinPA = np.sin(PA_)
 
-    yp = x*(np.sin(PA_)*np.cos(twist) + np.sin(twist)*np.cos(PA_)*np.cos(inc_)) + y*((-np.sin(PA_)*np.sin(twist) + np.cos(PA_)*np.cos(inc_)*np.cos(twist))*np.cos(warp) - np.sin(inc_)*np.sin(warp)*np.cos(PA_)) + z*(-(-np.sin(PA_)*np.sin(twist) + np.cos(PA_)*np.cos(inc_)*np.cos(twist))*np.sin(warp) - np.sin(inc_)*np.cos(PA_)*np.cos(warp))
+    cosi = np.cos(inc_)
+    sini = np.sin(inc_)
 
-    zp = x*np.sin(inc_)*np.sin(twist) + y*(np.sin(inc_)*np.cos(twist)*np.cos(warp) + np.sin(warp)*np.cos(inc_)) + z*(-np.sin(inc_)*np.sin(warp)*np.cos(twist) + np.cos(inc_)*np.cos(warp))
+    xp = x*(-sinPA*sint*cosi + cosPA*cost) + y*((-sinPA*cosi*cost - sint*cosPA)*cosw + sinPA*sini*sinw) + z*(-(-sinPA*cosi*cost - sint*cosPA)*sinw + sinPA*sini*cosw)
+    yp = x*(sinPA*cost + sint*cosPA*cosi) + y*((-sinPA*sint + cosPA*cosi*cost)*cosw - sini*sinw*cosPA) + z*(-(-sinPA*sint + cosPA*cosi*cost)*sinw - sini*cosPA*cosw)
+    zp = x*sini*sint + y*(sini*cost*cosw + sinw*cosi) + z*(-sini*sinw*cost + cosi*cosw)
 
     return np.moveaxis([xp, yp, zp], 0, 2)
 
