@@ -200,20 +200,23 @@ class datacube(object):
                 w_t = 0.0 if w_t is None else w_t
                 w_t0 = 0.0 if w_t0 is None else w_t0
 
-                def w_func_s(r, a_in, a_out, r0, dr):
-                    r0 = 1.0 if r0 is None else r0
-                    dr = 1.0 if dr is None else dr
-                    return np.radians(a_out - (a_out - a_in) / (1 + np.exp((r - r0)/(0.1 * dr))))
-                
-                def w_func_d(r, a, r0, dr):
-                    r0 = 1.0 if r0 is None else r0
-                    dr = 1.0 if dr is None else dr
-                    return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
-                
                 if method == 'SKY':
-                    r, t, z = self._get_warp_coords_SKY(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func_s, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper)
+
+                    def w_func(r, a_in, a_out, r0, dr):
+                        r0 = 1.0 if r0 is None else r0
+                        dr = 1.0 if dr is None else dr
+                        return np.radians(a_out - (a_out - a_in) / (1 + np.exp((r - r0)/(0.1 * dr))))
+                        
+                    r, t, z = self._get_warp_coords_SKY(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper)
+
                 if method == 'DISK':
-                    r, t, z = self._get_warp_coords_DISK(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func_d, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper, mstar=mstar, dist=dist)
+                    
+                    def w_func(r, a, r0, dr):
+                        r0 = 1.0 if r0 is None else r0
+                        dr = 1.0 if dr is None else dr
+                        return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
+                
+                    r, t, z = self._get_warp_coords_DISK(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper, mstar=mstar, dist=dist)
                 else:
                     print(f'NO METHOD :( method {method}')
                     #raise AttributeError('method not available')
@@ -586,8 +589,6 @@ class datacube(object):
         # Get the rotational velocity
         vkep_i = _vkep(p0_i, phii, mstar, dist)
 
-        #p1_i = eddy.fmodule.apply_matrix2d_r(p0_i, warp_i, twist_i, inc_obs, PA_obs)
-        #v1_i = eddy.fmodule.apply_matrix2d_r(vkep_i, warp_i, twist_i, inc_obs, PA_obs)
         p1_i = helper.apply_matrix2d_d(p0_i, warp_i, twist_i, inc_obs, PA_obs)
         v1_i = helper.apply_matrix2d_d(vkep_i, warp_i, twist_i, inc_obs, PA_obs)
 
@@ -648,9 +649,7 @@ class datacube(object):
         warp_i  = w_func(r_i, w_i, inc, w_r0, w_dr)
         twist_i = w_func(r_i, w_t, PA, w_r0, w_dr)
 
-        #p1_i = eddy.fmodule.apply_matrix2d(p0_i, warp_i, twist_i)
         p1_i = helper.apply_matrix2d_s(p0_i, warp_i, twist_i)
-
 
         ### Interpolate on sky plane
 
