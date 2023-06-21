@@ -217,9 +217,8 @@ class datacube(object):
                         return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
                 
                     r, t, z = self._get_warp_coords_DISK(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper, mstar=mstar, dist=dist)
-                else:
-                    print(f'NO METHOD :( method {method}')
-                    #raise AttributeError('method not available')
+                if method not in ['SKY', 'DISK']:
+                    raise AttributeError(f'method {method} not available, use DISK or SKY')
 
             else:
                 if shadowed:
@@ -545,8 +544,6 @@ class datacube(object):
         # - integrate nphi to parameters
         
         nphi = 64
-
-        print(f'w_i = {w_i}, w_t = {w_t}')
 
         ### Disk coords
         xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
