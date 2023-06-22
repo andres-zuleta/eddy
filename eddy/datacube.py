@@ -155,7 +155,6 @@ class datacube(object):
         """
 
         # Check the input variables.
-
         outframe = outframe.lower()
         if outframe not in ['cylindrical', 'cartesian']:
             raise ValueError("frame must be 'cylindrical' or 'cartesian'.")
@@ -1481,7 +1480,7 @@ class datacube(object):
     def plot_surface(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None,
                      r_cavity=None, r_taper=None, q_taper=1.0, w_i=None,
                      w_t=None, w_t0=None, w_r0=None, w_dr=None, z_func=None, w_func=None,
-                     shadowed=False, mstar=None, dist=None, r_max=None,
+                     shadowed=False, method=None, mstar=None, dist=None, r_max=None,
                      mask=None, fill=None, ax=None, contour_kwargs=None,
                      imshow_kwargs=None, return_fig=True, **_):
         """
@@ -1538,6 +1537,7 @@ class datacube(object):
                                                w_dr=w_dr,
                                                z_func=z_func,
                                                w_func=w_func,
+                                               method=method,
                                                mstar=mstar,
                                                dist=dist,
                                                shadowed=shadowed)

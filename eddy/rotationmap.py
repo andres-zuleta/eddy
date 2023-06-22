@@ -1937,7 +1937,7 @@ class rotationmap(datacube):
         if return_fig:
             return fig
 
-    def plot_model_surface(self, samples, params,  plot_surface_kwargs=None,
+    def plot_model_surface(self, samples, params, plot_surface_kwargs=None,
                            mask_with_data=True, return_fig=True):
         """
         Overplot the emission surface onto the provided axis. Takes the median
