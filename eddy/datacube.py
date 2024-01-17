@@ -162,18 +162,11 @@ class datacube(object):
         # Apply the inclination convention to be consistent with orbits.
 
         inc = inc if inc < 90.0 else inc - 180.0
-        w_i = w_i if w_i < 90.0 else w_i - 180.0
-        # Check that the necessary pairs are provided.
-
-        msg = "Must specify all of the warp coorinates: (w_i, w_t)."
-        if (w_i is not None) != (w_t is not None):
-            raise ValueError(msg)
 
         flared = r_taper is not None or w_i != 0.0 or r_cavity is not None
 
         # Select the quickest pixel deprojection method.
         # First round is analytical forms where `z_func` is not specified.
-
         # Cycle through the different options for pixel deprojection.
 
         if z0 is None and z_func is None:
@@ -198,6 +191,13 @@ class datacube(object):
                 w_i = 0.0 if w_i is None else w_i
                 w_t = 0.0 if w_t is None else w_t
                 w_t0 = 0.0 if w_t0 is None else w_t0
+                
+                w_i = w_i if w_i < 90.0 else w_i - 180.0
+                # Check that the necessary pairs are provided.
+
+                msg = "Must specify all of the warp coorinates: (w_i, w_t)."
+                if (w_i is not None) != (w_t is not None):
+                    raise ValueError(msg)
 
                 if method == 'SKY':
 
@@ -585,8 +585,10 @@ class datacube(object):
         # Get the rotational velocity
         vkep_i = _vkep(p0_i, phii, mstar, dist)
 
-        p1_i = helper.apply_matrix2d_d(p0_i, warp_i, twist_i, inc_obs, PA_obs)
-        v1_i = helper.apply_matrix2d_d(vkep_i, warp_i, twist_i, inc_obs, PA_obs)
+        #p1_i = helper.apply_matrix2d_d(p0_i, warp_i, twist_i, inc_obs, PA_obs)
+        #v1_i = helper.apply_matrix2d_d(vkep_i, warp_i, twist_i, inc_obs, PA_obs)
+        p1_i = eddy.fmodule.apply_matrix2d_disk(p0_i, warp_i, twist_i, inc_obs, PA_obs)
+        v1_i = eddy.fmodule.apply_matrix2d_disk(p0_i, warp_i, twist_i, inc_obs, PA_obs)
 
         ### Interpolate on sky plane
 
@@ -621,7 +623,7 @@ class datacube(object):
         ### TO DO
         # - integrate nphi to parameters
         
-        nphi = 32
+        nphi = 64
 
         ### Disk coords
         xdisk, ydisk = self._get_cart_sky_coords(x0, y0)
@@ -646,6 +648,7 @@ class datacube(object):
         twist_i = w_func(r_i, w_t, PA, w_r0, w_dr)
 
         p1_i = helper.apply_matrix2d_s(p0_i, warp_i, twist_i)
+        #p1_i = eddy.fmodule.apply_matrix2d_sky(p0_i, warp_i, twist_i)
 
         ### Interpolate on sky plane
 
@@ -670,7 +673,7 @@ class datacube(object):
         t_obs[t_obs==t_obs[0,0]] = np.nan
 
         return r_obs, t_obs, z_func(r_obs)
-
+        
     def _get_diskframe_coords(self):
         """Disk-frame coordinates based on the cube axes."""
         x_disk = np.linspace(self.shadowed_extend * self.xaxis[0],

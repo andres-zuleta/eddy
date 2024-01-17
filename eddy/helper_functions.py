@@ -4,7 +4,6 @@ from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 # -- MCMC / OPTIMIZATION FUNCTIONS -- #
 
 def random_p0(p0, scatter, nwalkers):

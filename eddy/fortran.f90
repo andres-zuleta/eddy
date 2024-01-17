@@ -291,7 +291,7 @@ CONTAINS
 
 ! -------------------------------------------------------------------
 
-   subroutine apply_matrix(p, warp, twist, inc, PA, azi, pout)
+   subroutine apply_matrix_disk(p, warp, twist, inc, PA, azi, pout)
 
       DOUBLE PRECISION, INTENT(in) :: p(3), warp
       DOUBLE PRECISION, INTENT(IN), optional :: twist, inc, PA, azi
@@ -314,7 +314,7 @@ CONTAINS
       
       cost = cos(phi_t)
       sint = sin(phi_t)
-      
+            
       pout(1) = x*(-sin(PA_)*sint*cos(inc_) + cos(PA_)*cost) + &
       y*((-sin(PA_) *cos(inc_)*cost - sint*cos(PA_))*cosw + sin(PA_) &
       *sin(inc_)*sinw) + z*(-(-sin(PA_)*cos(inc_)*cost - &
@@ -333,7 +333,7 @@ end subroutine
 
 ! -------------------------------------------------------------------
 
-subroutine apply_matrix2D(p, warp, twist, inc, PA, azi, pout, nr, nphi)
+subroutine apply_matrix2D_disk(p, warp, twist, inc, PA, azi, pout, nr, nphi)
 
    INTEGER, INTENT(in) :: nr, nphi
    DOUBLE PRECISION, INTENT(in) :: p(nr, nphi, 3), warp(nr)
@@ -355,12 +355,72 @@ subroutine apply_matrix2D(p, warp, twist, inc, PA, azi, pout, nr, nphi)
 
    do ir = 1, nr
       do iphi = 1, nphi
-         call apply_matrix(p(ir, iphi, :), warp(ir), phi_t(ir), inc_, PA_, azi_, pout(ir, iphi, :))
+         call apply_matrix_disk(p(ir, iphi, :), warp(ir), phi_t(ir), inc_, PA_, azi_, pout(ir, iphi, :))
       end do
    end do
 
 
 end subroutine
+
+! -------------------------------------------------------------------
+
+subroutine apply_matrix_sky(p, warp, twist, pout)
+
+   DOUBLE PRECISION, INTENT(in) :: p(3), warp
+   DOUBLE PRECISION, INTENT(IN), optional :: twist
+   DOUBLE PRECISION, INTENT(OUT) :: pout(3)
+   ! the default values
+   DOUBLE PRECISION :: phi_t = 0d0
+   DOUBLE PRECISION :: x, y, z
+   DOUBLE PRECISION :: cosw, sinw, cost, sint
+   if(present(twist)) phi_t=twist
+
+   x = p(1)
+   y = p(2)
+   z = p(3)
+
+   cosw = cos(warp)
+   sinw = sin(warp)
+   
+   cost = cos(-phi_t)
+   sint = sin(-phi_t)
+   
+   !Rz(-phi_t)Rx(warp)
+   pout(1) = x*cost - y*sint*cosw + z*sint*sinw
+   pout(2) = x*sint + y*cost*cosw - z*sinw*cost
+   pout(3) = y*sinw + z*cosw
+
+
+end subroutine
+
+! -------------------------------------------------------------------
+
+subroutine apply_matrix2D_sky(p, warp, twist, pout, nr, nphi)
+
+INTEGER, INTENT(in) :: nr, nphi
+DOUBLE PRECISION, INTENT(in) :: p(nr, nphi, 3), warp(nr)
+DOUBLE PRECISION, INTENT(IN), optional :: twist(nr)
+DOUBLE PRECISION, INTENT(OUT) :: pout(nr, nphi, 3)
+! the default values
+DOUBLE PRECISION :: phi_t(nr)
+integer :: ir, iphi
+
+if(present(twist)) then 
+   phi_t=twist
+else
+   phi_t=0d0
+end if
+
+do ir = 1, nr
+   do iphi = 1, nphi
+      call apply_matrix_sky(p(ir, iphi, :), warp(ir), phi_t(ir), pout(ir, iphi, :))
+   end do
+end do
+
+
+end subroutine
+
+! -------------------------------------------------------------------
 
 subroutine test_module(xi, yi, zi, vi, img_x, img_y, img_z, img_v, nq)
    IMPLICIT NONE
