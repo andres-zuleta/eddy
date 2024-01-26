@@ -63,7 +63,7 @@ class datacube(object):
     def disk_coords(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=0.0, psi=1.0,
                     r_cavity=0.0, r_taper=None, q_taper=1.0, w_i=0.0, w_t=0.0,
                     w_t0=0.0, w_r0=1.0, w_dr=1.0, z_func=None, mstar=None, dist=None,
-                    outframe='cylindrical', shadowed=False, flatten=False, method=None, **_):
+                    outframe='cylindrical', shadowed=False, flatten=False, method=None, model_type=None, **_):
         r"""
         Get the disk coordinates given certain geometrical parameters and an
         emission surface. The emission surface is most simply described as a
@@ -188,6 +188,11 @@ class datacube(object):
 
             if w_i != None or w_t != None:
 
+                if model_type in ['W', 'WF']:
+                    pass
+                else:
+                    raise ValueError("model_type must be 'W' or 'WF'.")
+
                 w_i = 0.0 if w_i is None else w_i
                 w_t = 0.0 if w_t is None else w_t
                 w_t0 = 0.0 if w_t0 is None else w_t0
@@ -206,7 +211,7 @@ class datacube(object):
                         dr = 1.0 if dr is None else dr
                         return np.radians(a_out - (a_out - a_in) / (1 + np.exp((r - r0)/(0.1 * dr))))
                         
-                    r, t, z = self._get_warp_coords_SKY(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper)
+                    r, t, z = self._get_warp_coords_SKY(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper, model_type=model_type)
 
                 if method == 'DISK':
                     
@@ -215,7 +220,7 @@ class datacube(object):
                         dr = 1.0 if dr is None else dr
                         return np.radians(a / (1.0 + np.exp(-(r0 - r) / (0.1*dr))))
                 
-                    r, t, z = self._get_warp_coords_DISK(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper, mstar=mstar, dist=dist)
+                    r, t, z = self._get_warp_coords_DISK(x0=x0, y0=y0, inc=inc, PA=PA, w_i=w_i, w_t=w_t, w_t0=w_t0, w_r0=w_r0, w_dr=w_dr, z_func=z_func, w_func=w_func, z0=z0, psi=psi, r_taper=r_taper, q_taper=q_taper, mstar=mstar, dist=dist, model_type=model_type)
                 if method not in ['SKY', 'DISK']:
                     raise AttributeError(f'method {method} not available, use DISK or SKY')
 
@@ -618,7 +623,7 @@ class datacube(object):
 
         return r_obs, t_obs, z_func(r_obs)
 
-    def _get_warp_coords_SKY(self, x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func, z0, psi, r_taper, q_taper):
+    def _get_warp_coords_SKY(self, x0, y0, inc, PA, w_i, w_t, w_r0, w_dr, z_func, w_func, z0, psi, r_taper, q_taper, model_type):
 
         ### TO DO
         # - integrate nphi to parameters
@@ -1483,7 +1488,7 @@ class datacube(object):
     def plot_surface(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None,
                      r_cavity=None, r_taper=None, q_taper=1.0, w_i=None,
                      w_t=None, w_t0=None, w_r0=None, w_dr=None, z_func=None, w_func=None,
-                     shadowed=False, method=None, mstar=None, dist=None, r_max=None,
+                     shadowed=False, method=None, model_type=None, mstar=None, dist=None, r_max=None,
                      mask=None, fill=None, ax=None, contour_kwargs=None,
                      imshow_kwargs=None, return_fig=True, **_):
         """
@@ -1543,7 +1548,8 @@ class datacube(object):
                                                method=method,
                                                mstar=mstar,
                                                dist=dist,
-                                               shadowed=shadowed)
+                                               shadowed=shadowed,
+                                               model_type=model_type)
 
         # Mask the data based on r_max.
 
