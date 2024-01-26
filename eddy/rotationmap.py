@@ -1305,7 +1305,7 @@ class rotationmap(datacube):
     
     def _vrad_logistic(self, rvals, tvals, zvals, params, vphi):
         
-        chi_r = self._logistic(rvals, 1.0, 0.0, params['w_r0'], params['w_dr'])
+        chi_r = self._logistic(rvals, 1.0, 0.0, params['chi_r0'], params['chi_dr'])
         vrad = -vphi * chi_r
         
         return vrad

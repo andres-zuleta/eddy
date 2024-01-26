@@ -114,6 +114,20 @@ w_dr:
     prior_values:
         - 5.0
 
+# Radial flow - controlled by 'chi_r0' and 'chi_dr'.
+
+chi_r0:
+    default: 0.0
+    prior_type: 'flat'
+    prior_values:
+        - 5.0
+
+chi_dr:
+    default: 0.0
+    prior_type: 'flat'
+    prior_values:
+        - 5.0
+
 # Disk Surface Density - controlled by `mdisk`.
 
 mdisk:
