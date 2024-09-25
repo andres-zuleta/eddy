@@ -1304,8 +1304,8 @@ class rotationmap(datacube):
         return vrad
     
     def _vrad_logistic(self, rvals, tvals, zvals, params, vphi):
-        
-        chi_r = self._logistic(rvals, 1.0, 0.0, params['chi_r0'], params['chi_dr'])
+
+        chi_r = self._logistic(rvals, params['chi_0'], 0.0, params['chi_r0'], params['chi_dr'])
         vrad = -vphi * chi_r
         
         return vrad
@@ -1355,22 +1355,18 @@ class rotationmap(datacube):
     def _proj_vphi(self, v_phi, rvals, tvals, params):
         """Project the rotational velocity onto the sky."""
         if params['w_i'] != 0.0 and params['model_type'] in ['W', 'WF']:
-            #print('vphi inside warp')
             inc_w = self._logistic(rvals, params['w_i'], params['inc'], params['w_r0'], params['w_dr'])
             return v_phi * np.cos(tvals) * np.sin(abs(np.radians(inc_w)))
         else:
-            #print('proj vphi for Radial flow')
             return v_phi * np.cos(tvals) * np.sin(abs(np.radians(params['inc'])))
 
     def _proj_vrad(self, v_rad, rvals, tvals, params):
         """Project the radial velocity onto the sky."""
         if params['w_i'] != 0.0 and params['model_type'] in ['W', 'WF']:
-            #print('vrad for warp')
             # obtain inclination matrix for warp
             inc_w = self._logistic(rvals, params['w_i'], params['inc'], params['w_r0'], params['w_dr'])
             return v_rad * np.sin(tvals) * np.sin(-np.radians(inc_w)) #strangely we need a negative sign here
         else:
-            #print('proj vrad for Radial flow')
             return v_rad * np.sin(tvals) * np.sin(np.radians(params['inc']))
 
     def _proj_valt(self, v_alt, rvals, tvals, params):
@@ -1385,16 +1381,12 @@ class rotationmap(datacube):
     def _make_model(self, params):
         """Build the velocity model from the dictionary of parameters."""
         rvals, tvals, zvals = self.disk_coords(**params)
-        #print('Before VPHI')
         vphi = params['vfunc'](rvals, tvals, zvals, params)
-        #print('Before V0')
         v0 = self._proj_vphi(vphi, rvals, tvals, params) + params['vlsr']
-        #print('After V0')
         if params['method'] == 'DISK': # Obtain the velocity using interpolation
             v0 = self._v0 + params['vlsr']
         if params['method'] == 'SKY':
             if params['model_type'] in ['F', 'WF']:
-                #print('Model type is F or WF inside make_model')
                 #vrad = self._vrad_chi(rvals, tvals, zvals, params, vphi) # Use the plain vphi 
                 vrad = self._vrad_logistic(rvals, tvals, zvals, params, vphi)
                 v0 += self._proj_vrad(vrad, rvals, tvals, params)
