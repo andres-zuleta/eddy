@@ -170,12 +170,15 @@ class datacube(object):
         # Cycle through the different options for pixel deprojection.
 
         if z0 is None and z_func is None:
+            #print('midplane_polar')
             r, t = self._get_midplane_polar_coords(x0, y0, inc, PA)
             z = np.zeros(r.shape)
         elif psi is None and z_func is None:
+            #print('conical_polar')
             r, t, z = self._get_conical_polar_coords(x0, y0, inc, PA, z0)
         else:
             if z_func is None:
+                #print('defining z_func')
                 r_taper = np.inf if r_taper is None else r_taper
                 z0 = 0.0 if z0 is None else z0
                 def z_func(r_in):
@@ -674,9 +677,10 @@ class datacube(object):
         r_obs = values_interp[:, :, 0]
         t_obs = values_interp[:, :, 1] - np.pi
         
-        r_obs[r_obs==r_obs[0,0]] = np.nan
-        t_obs[t_obs==t_obs[0,0]] = np.nan
+        #r_obs[r_obs==r_obs[0,0]] = np.nan
+        #t_obs[t_obs==t_obs[0,0]] = np.nan
 
+        #return r_obs, t_obs, z
         return r_obs, t_obs, z_func(r_obs)
         
     def _get_diskframe_coords(self):
@@ -1486,7 +1490,7 @@ class datacube(object):
             return fig
 
     def plot_surface(self, x0=0.0, y0=0.0, inc=0.0, PA=0.0, z0=None, psi=None,
-                     r_cavity=None, r_taper=None, q_taper=1.0, w_i=None,
+                     r_cavity=0.0, r_taper=None, q_taper=1.0, w_i=None,
                      w_t=None, w_t0=None, w_r0=None, w_dr=None, z_func=None, w_func=None,
                      shadowed=False, method=None, model_type=None, mstar=None, dist=None, r_max=None,
                      mask=None, fill=None, ax=None, contour_kwargs=None,
