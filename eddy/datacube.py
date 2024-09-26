@@ -170,15 +170,12 @@ class datacube(object):
         # Cycle through the different options for pixel deprojection.
 
         if z0 is None and z_func is None:
-            #print('midplane_polar')
             r, t = self._get_midplane_polar_coords(x0, y0, inc, PA)
             z = np.zeros(r.shape)
         elif psi is None and z_func is None:
-            #print('conical_polar')
             r, t, z = self._get_conical_polar_coords(x0, y0, inc, PA, z0)
         else:
             if z_func is None:
-                #print('defining z_func')
                 r_taper = np.inf if r_taper is None else r_taper
                 z0 = 0.0 if z0 is None else z0
                 def z_func(r_in):
